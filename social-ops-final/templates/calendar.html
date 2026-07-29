@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Calendar{% endblock %}
+{% block head %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/fullcalendar/6.1.11/index.global.min.js"></script>
+{% endblock %}
+{% block content %}
+<h2>Content calendar</h2>
+<p class="muted">
+  Legend:
+  <span class="badge" style="background:#9CA3AF">Ordered</span>
+  <span class="badge" style="background:#F59E0B">Submitted</span>
+  <span class="badge" style="background:#EF4444">Needs changes</span>
+  <span class="badge" style="background:#3B82F6">Approved</span>
+  <span class="badge" style="background:#10B981">Scheduled</span>
+  <span class="badge" style="background:#8B5CF6">Sent to OneUp (manual)</span>
+</p>
+<div id="calendar"></div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const calendarEl = document.getElementById('calendar');
+  const calendar = new FullCalendar.Calendar(calendarEl, {
+    initialView: 'dayGridMonth',
+    height: 'auto',
+    headerToolbar: {
+      left: 'prev,next today',
+      center: 'title',
+      right: 'dayGridMonth,dayGridWeek,listMonth'
+    },
+    events: function (info, successCallback, failureCallback) {
+      fetch("{{ url_for('orders_json') }}")
+        .then(r => r.json())
+        .then(data => successCallback(data.events))
+        .catch(failureCallback);
+    },
+    eventClick: function (info) {
+      info.jsEvent.preventDefault();
+      if (info.event.url) {
+        window.location.href = info.event.url;
+      }
+    }
+  });
+  calendar.render();
+});
+</script>
+{% endblock %}

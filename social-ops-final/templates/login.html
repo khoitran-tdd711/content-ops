@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Log in{% endblock %}
+{% block content %}
+<div class="login-wrap">
+  <div class="login-box card">
+    <h2 style="margin-top:0">Content Ops</h2>
+    <form method="post">
+      <label>Email</label>
+      <input type="email" name="email" required autofocus>
+      <label>Password</label>
+      <input type="password" name="password" required>
+      <div style="margin-top:18px">
+        <button class="btn" type="submit" style="width:100%">Log in</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

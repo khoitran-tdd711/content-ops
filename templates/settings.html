@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+<h2>Settings</h2>
+
+<div class="card">
+  <div class="section-title">OneUp connection</div>
+  <p class="muted">
+    OneUp (<a href="https://www.oneupapp.io/" target="_blank">oneupapp.io</a>) is the service that actually
+    posts to Instagram/LinkedIn/Facebook/TikTok on your behalf — this app hands scheduled posts off to it via API.
+    Get your API key from <a href="https://www.oneupapp.io/api-access" target="_blank">oneupapp.io/api-access</a>
+    (you'll need a OneUp account with your social accounts already connected there).
+    Leave the API key blank if you'd rather use the manual "send to OneUp" fallback for now.
+  </p>
+  <form method="post" action="{{ url_for('settings_save') }}">
+    <label>OneUp API key</label>
+    <input type="text" name="api_key" value="{{ api_key or '' }}" placeholder="paste your OneUp API key">
+
+    <label>OneUp category ID <button type="button" class="btn secondary" id="btn-fetch-categories" style="margin-left:8px;padding:2px 10px">Look up my categories</button></label>
+    <input type="text" name="category_id" value="{{ category_id }}" placeholder="e.g. 49839">
+    <div id="categories-result" class="muted" style="margin-top:6px"></div>
+
+    <div class="section-title" style="margin-top:20px">
+      Which OneUp account handles each platform?
+      <button type="button" class="btn secondary" id="btn-fetch-accounts" style="margin-left:8px;padding:2px 10px">Look up my connected accounts</button>
+    </div>
+    <div id="accounts-result" class="muted" style="margin-bottom:10px"></div>
+
+    {% for p in platforms %}
+      <label>{{ p|title }} — OneUp social_network_id</label>
+      <input type="text" name="social_id_{{ p }}" value="{{ mapping[p] or '' }}" placeholder="paste the account ID from the lookup above">
+    {% endfor %}
+
+    <div style="margin-top:18px">
+      <button class="btn" type="submit">Save settings</button>
+    </div>
+  </form>
+</div>
+
+<script>
+function fetchAndShow(url, targetId) {
+  const target = document.getElementById(targetId);
+  target.textContent = 'Loading...';
+  fetch(url).then(r => r.json()).then(data => {
+    if (data.error) { target.textContent = 'Error: ' + data.error; return; }
+    target.innerHTML = '<pre style="white-space:pre-wrap;font-size:12px;background:#f3f4f6;padding:10px;border-radius:8px">' +
+      JSON.stringify(data, null, 2) + '</pre>';
+  }).catch(e => target.textContent = 'Error: ' + e);
+}
+document.getElementById('btn-fetch-categories').addEventListener('click', function () {
+  fetchAndShow("{{ url_for('settings_oneup_categories') }}", 'categories-result');
+});
+document.getElementById('btn-fetch-accounts').addEventListener('click', function () {
+  fetchAndShow("{{ url_for('settings_oneup_accounts') }}", 'accounts-result');
+});
+</script>
+{% endblock %}

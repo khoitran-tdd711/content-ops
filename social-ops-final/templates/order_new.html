@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}New order{% endblock %}
+{% block content %}
+<div class="card" style="max-width:560px">
+  <h2 style="margin-top:0">New order</h2>
+  {% if not producers %}
+    <p class="muted">No producers yet — <a href="{{ url_for('users') }}">add one first</a>.</p>
+  {% endif %}
+  <form method="post">
+    <label>Platform</label>
+    <select name="platform" required>
+      {% for p in platforms %}<option value="{{ p }}">{{ p|title }}</option>{% endfor %}
+    </select>
+
+    <label>Content type</label>
+    <select name="content_type">
+      {% for c in content_types %}<option value="{{ c }}" {{ 'selected' if c=='carousel' }}>{{ c.replace('_',' ')|title }}</option>{% endfor %}
+    </select>
+
+    <label>Quantity</label>
+    <input type="number" name="quantity" min="1" value="1" required>
+
+    <label>Due date</label>
+    <input type="date" name="due_date" required>
+
+    <label>Assign to producer</label>
+    <select name="producer_id" required>
+      {% for p in producers %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
+    </select>
+
+    <label>Title (optional)</label>
+    <input type="text" name="title" placeholder="e.g. Product launch teaser">
+
+    <label>Caption / brief (optional, can be added later)</label>
+    <textarea name="caption" placeholder="Caption text to post, or a creative brief for the producer"></textarea>
+
+    <div style="margin-top:18px">
+      <button class="btn" type="submit">Create order &amp; notify producer</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

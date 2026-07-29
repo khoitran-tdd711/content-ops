@@ -1,0 +1,35 @@
+# Alternative Render Blueprint: $7/month Starter plan, SQLite on a persistent
+# disk, plain SMTP for email. Simpler (no external database, no Resend
+# domain verification) if you'd rather pay a small amount than deal with
+# free-tier caveats. Rename this to render.yaml (replacing the free one) to
+# use it, or just fill in these same settings by hand in Render's dashboard.
+services:
+  - type: web
+    name: content-ops
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT
+    disk:
+      name: content-ops-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        value: sqlite:////var/data/social_ops.db
+      - key: BASE_URL
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      - key: ONEUP_API_KEY
+        sync: false

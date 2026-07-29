@@ -1,0 +1,27 @@
+# Render "Blueprint" for the FREE deployment path — a free Render web service
+# paired with an external free Postgres database (Neon), since Render's free
+# tier has no persistent disk of its own. See DEPLOY.md for the full walkthrough,
+# including where to get DATABASE_URL, RESEND_API_KEY, etc.
+#
+# If you'd rather pay $7/month for something simpler (SQLite on a persistent
+# disk, no external database to manage), use render-paid.yaml instead.
+services:
+  - type: web
+    name: content-ops
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false  # paste your Neon (or other free Postgres) connection string here
+      - key: BASE_URL
+        sync: false  # set to your Render URL after first deploy, e.g. https://content-ops.onrender.com
+      - key: RESEND_API_KEY
+        sync: false  # free key from resend.com — needed because Render's free tier blocks SMTP
+      - key: RESEND_FROM
+        sync: false  # e.g. orders@yourverifieddomain.com
+      - key: ONEUP_API_KEY
+        sync: false

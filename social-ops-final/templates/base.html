@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Content Ops{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  {% block head %}{% endblock %}
+</head>
+<body>
+  {% if current_user %}
+  <div class="nav">
+    <a class="brand" href="{{ url_for('calendar_view') }}">Content Ops</a>
+    <a href="{{ url_for('calendar_view') }}">Calendar</a>
+    {% if current_user.is_boss %}
+      <a href="{{ url_for('order_new') }}">New order</a>
+      <a href="{{ url_for('users') }}">Team</a>
+      <a href="{{ url_for('settings') }}">Settings</a>
+    {% endif %}
+    <div class="spacer"></div>
+    <span class="user">{{ current_user.name }} ({{ current_user.role }})</span>
+    <a href="{{ url_for('logout') }}">Log out</a>
+  </div>
+  {% endif %}
+
+  <div class="container">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="flash {{ category }}">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </div>
+</body>
+</html>

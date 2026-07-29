@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Team{% endblock %}
+{% block content %}
+<h2>Team</h2>
+
+<div class="card">
+  <div class="section-title">Add a person</div>
+  <form method="post">
+    <div class="grid-2">
+      <div>
+        <label>Name</label>
+        <input type="text" name="name" required>
+      </div>
+      <div>
+        <label>Email</label>
+        <input type="email" name="email" required>
+      </div>
+    </div>
+    <div class="grid-2">
+      <div>
+        <label>Role</label>
+        <select name="role">
+          <option value="producer">Producer</option>
+          <option value="boss">Boss / admin</option>
+        </select>
+      </div>
+      <div>
+        <label>Temporary password</label>
+        <input type="text" name="password" required>
+      </div>
+    </div>
+    <div style="margin-top:18px">
+      <button class="btn" type="submit">Add person</button>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <div class="section-title">Everyone</div>
+  <table>
+    <tr><th>Name</th><th>Email</th><th>Role</th></tr>
+    {% for u in users %}
+    <tr><td>{{ u.name }}</td><td>{{ u.email }}</td><td>{{ u.role }}</td></tr>
+    {% endfor %}
+  </table>
+</div>
+{% endblock %}
