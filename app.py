@@ -69,8 +69,33 @@ def boss_required(view):
 
 
 def register_routes(app):
+    @app.route("/setup", methods=["GET", "POST"])
+    def setup():
+        """First-run, browser-only way to create the first boss account.
+        Disabled automatically once at least one account exists, so it can't
+        be used to take over an already-running instance."""
+        if User.query.count() > 0:
+            return redirect(url_for("login"))
+        if request.method == "POST":
+            name = request.form.get("name", "").strip()
+            email = request.form.get("email", "").strip().lower()
+            password = request.form.get("password", "")
+            if not name or not email or len(password) < 6:
+                flash("Please fill in all fields (password: 6+ characters).", "error")
+                return render_template("setup.html")
+            user = User(name=name, email=email, role="boss")
+            user.set_password(password)
+            db.session.add(user)
+            db.session.commit()
+            session["user_id"] = user.id
+            flash("Account created. Add your producers under Team.", "success")
+            return redirect(url_for("calendar_view"))
+        return render_template("setup.html")
+
     @app.route("/login", methods=["GET", "POST"])
     def login():
+        if User.query.count() == 0:
+            return redirect(url_for("setup"))
         if request.method == "POST":
             email = request.form.get("email", "").strip().lower()
             password = request.form.get("password", "")
