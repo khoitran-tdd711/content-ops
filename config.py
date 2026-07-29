@@ -11,7 +11,8 @@ class Config:
     SQLALCHEMY_DATABASE_URI = os.environ.get(
         "DATABASE_URL", f"sqlite:///{os.path.join(BASE_DIR, 'social_ops.db')}"
     )
-    SQLALCHEMY_TRACK_MODIFICATIONS = False
+    SQLALCHEMY_TRACK_MODIFICATIONS = False  
+    SQLALCHEMY_ENGINE_OPTIONS = {"pool_pre_ping": True}
     BASE_URL = os.environ.get("BASE_URL", "http://localhost:5000")
 
     SMTP_HOST = os.environ.get("SMTP_HOST", "").strip()
