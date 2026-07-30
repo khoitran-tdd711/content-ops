@@ -29,16 +29,21 @@
 
 <div id="calendar"></div>
 
-<dialog id="event-modal" style="border:none;border-radius:20px;padding:0;width:380px;max-width:90vw">
+<dialog id="event-modal" style="border:none;border-radius:20px;padding:0;width:420px;max-width:90vw">
   <div class="card" style="margin:0;border:none">
-    <h3 id="event-modal-title" style="margin:0 0 4px"></h3>
-    <p class="muted" id="event-modal-sub" style="margin:0 0 14px"></p>
-    <div style="display:flex;gap:10px">
-      <a id="event-modal-modify" class="btn secondary" style="flex:1;text-align:center">To modify</a>
-      <form id="event-modal-publish-form" method="post" style="flex:1;margin:0">
-        <button class="btn" type="submit" style="width:100%">To publish</button>
-      </form>
-    </div>
+    <h3 id="event-modal-title" style="margin:0 0 14px"></h3>
+    <form id="event-modal-publish-form" method="post">
+      <label>Publish date &amp; time</label>
+      <input type="datetime-local" id="event-modal-datetime" name="scheduled_at" required>
+
+      <label>Description</label>
+      <textarea id="event-modal-caption" name="caption" placeholder="Caption for this post"></textarea>
+
+      <div style="display:flex;gap:10px;margin-top:14px">
+        <a id="event-modal-modify" class="btn secondary" style="flex:1;text-align:center">To modify</a>
+        <button class="btn" type="submit" style="flex:1">Confirm &amp; publish</button>
+      </div>
+    </form>
     <button type="button" class="btn secondary" style="width:100%;margin-top:10px"
             onclick="document.getElementById('event-modal').close()">Cancel</button>
   </div>
@@ -74,19 +79,21 @@ document.addEventListener('DOMContentLoaded', function () {
     },
     eventClick: function (info) {
       info.jsEvent.preventDefault();
+      const props = info.event.extendedProps;
       document.getElementById('event-modal-title').textContent = info.event.title;
-      document.getElementById('event-modal-sub').textContent =
-        'Publishing on ' + info.event.startStr;
+      document.getElementById('event-modal-datetime').value = props.scheduledAt || (info.event.startStr.slice(0, 10) + 'T12:00');
+      document.getElementById('event-modal-caption').value = props.caption || '';
       document.getElementById('event-modal-modify').href = info.event.url;
       document.getElementById('event-modal-publish-form').action = '/orders/' + info.event.id + '/publish-now';
       modal.showModal();
     },
     eventDrop: function (info) {
       const newDate = info.event.startStr.slice(0, 10);
+      const existingTime = (info.event.extendedProps.scheduledAt || '').slice(11, 16) || '12:00';
       fetch(`/orders/${info.event.id}/set-date`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: 'due_date=' + newDate
+        body: 'scheduled_at=' + encodeURIComponent(newDate + 'T' + existingTime)
       }).catch(function () { info.revert(); });
     }
   });
