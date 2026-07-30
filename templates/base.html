@@ -10,7 +10,7 @@
 <body>
   {% if current_user %}
   <div class="nav">
-    <a class="brand" href="{{ url_for('calendar_view') }}">Content Ops</a>
+    <a class="brand" href="{{ url_for('calendar_view') }}"><span class="brand-logo" aria-label="Akka"></span></a>
     <a href="{{ url_for('calendar_view') }}">Calendar</a>
     <a href="{{ url_for('board_view') }}">Board</a>
     {% if current_user.is_boss %}
