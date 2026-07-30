@@ -13,41 +13,52 @@ LANGUAGES = [
 ]
 
 # Status flow:
-# ordered -> submitted -> (approved | to_modify)
+# ordered -> submitted -> (ready | to_modify)
 #   to_modify -> ordered (producer reworks, resubmits -> submitted)
-#   approved -> scheduled (boss scheduled it, either via OneUp API or manual OneUp handoff)
+#   ready -> scheduled (boss scheduled it, either via OneUp API or manual OneUp handoff)
+#   scheduled -> published
+# "in_production" is a boss-settable catch-all (from the Board) for anything
+# being actively worked on outside the structured submit/review flow above.
 STATUSES = [
     "ordered",
     "submitted",
     "to_modify",
-    "approved",
+    "in_production",
+    "ready",
     "scheduled",
     "sent_manually",
     "failed",
-    "already_published",
+    "published",
 ]
 
 STATUS_LABELS = {
     "ordered": "Ordered",
     "submitted": "Submitted for review",
     "to_modify": "Needs changes",
-    "approved": "Approved",
-    "scheduled": "Scheduled (auto-publish)",
-    "sent_manually": "Sent to OneUp (manual upload)",
+    "in_production": "In Production",
+    "ready": "Ready",
+    "scheduled": "Scheduled",
+    "sent_manually": "Scheduled (manual upload)",
     "failed": "Publish failed",
-    "already_published": "Already published (imported)",
+    "published": "Published",
 }
 
 STATUS_COLORS = {
     "ordered": "#9CA3AF",
     "submitted": "#F59E0B",
     "to_modify": "#EF4444",
-    "approved": "#3B82F6",
-    "scheduled": "#10B981",
+    "in_production": "#F59E0B",
+    "ready": "#3B82F6",
+    "scheduled": "#8B5CF6",
     "sent_manually": "#8B5CF6",
     "failed": "#DC2626",
-    "already_published": "#0D9488",
+    "published": "#10B981",
 }
+
+# The statuses a boss can pick directly from the Board's status dropdown.
+# The others (submitted / to_modify / sent_manually / failed) are set
+# automatically as part of the producer submit/review/publish flow.
+BOARD_STATUSES = ["ordered", "in_production", "ready", "scheduled", "published"]
 
 
 def now():
@@ -102,6 +113,8 @@ class Order(db.Model):
     title = db.Column(db.String(200))
     caption = db.Column(db.Text)
     due_date = db.Column(db.Date, nullable=True)  # blank until a pub date is assigned on the Board
+    date_ordered = db.Column(db.Date)  # when it was placed/produced ("Folder Created" for tracker imports)
+
     producer_id = db.Column(db.Integer, db.ForeignKey("user.id"))
     created_by_id = db.Column(db.Integer, db.ForeignKey("user.id"))
 
