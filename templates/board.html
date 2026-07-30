@@ -1,10 +1,29 @@
 {% extends "base.html" %}
 {% block title %}Board{% endblock %}
 {% block content %}
-<h2 style="margin-top:0">Board</h2>
+<style>
+  .board-menu summary { cursor: pointer; list-style: none; font-size: 18px; line-height: 1; padding: 2px 8px; border-radius: 6px; }
+  .board-menu summary::-webkit-details-marker { display: none; }
+  .board-menu summary:hover { background: var(--bg); }
+  .board-menu[open] summary { background: var(--bg); }
+  .board-menu .menu-pop {
+    position: absolute; right: 0; margin-top: 4px; background: #fff;
+    border: 1px solid var(--border); border-radius: 8px; padding: 6px;
+    box-shadow: 0 4px 14px rgba(0,0,0,.12); z-index: 20; min-width: 130px;
+  }
+  .board-menu .menu-pop form { margin: 0 0 4px; }
+  .board-menu .menu-pop form:last-child { margin-bottom: 0; }
+  .board-menu .menu-pop button { width: 100%; text-align: left; }
+  td.actions-cell { position: relative; }
+</style>
+
+<div style="display:flex;justify-content:space-between;align-items:center">
+  <h2 style="margin:0">Board</h2>
+  <a class="btn" href="{{ url_for('order_import') }}">+ New task</a>
+</div>
 <p class="muted">
-  Every carousel/post produced or ordered lives here. This is the back-end tracker — set the
-  pub date on the Calendar (drag an item, or use "New order") once you're ready to schedule it.
+  Every carousel/post produced or ordered lives here. Set a pub date below to make it show up
+  on the Calendar.
 </p>
 
 <form method="get" style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:16px">
@@ -50,21 +69,33 @@
       <th>Status</th>
       <th>Note</th>
       <th>Drive link</th>
+      <th>Pub date</th>
       <th>Date ordered</th>
+      <th></th>
     </tr>
   </thead>
   <tbody>
     {% for o in orders %}
     <tr>
       <td><a href="{{ url_for('order_detail', order_id=o.id) }}">{{ o.title or '(untitled)' }}</a></td>
-      <td>{{ o.platform|title if o.platform else '—' }}</td>
+      <td>
+        {% if current_user.is_boss %}
+        <form method="post" action="{{ url_for('order_set_platform', order_id=o.id) }}" style="margin:0">
+          <select name="platform" onchange="this.form.submit()" style="width:110px;padding:3px 6px;font-size:12px;margin:0">
+            {% for p in platforms %}<option value="{{ p }}" {{ 'selected' if o.platform == p }}>{{ p|title }}</option>{% endfor %}
+          </select>
+        </form>
+        {% else %}
+          {{ o.platform|title if o.platform else '—' }}
+        {% endif %}
+      </td>
       <td>{{ o.language or '—' }}</td>
       <td>{{ o.producer.name if o.producer else '—' }}</td>
       <td>
-        <span class="badge" style="background:{{ o.status_color }}">{{ o.status_label }}</span>
         {% if current_user.is_boss %}
-        <form method="post" action="{{ url_for('order_set_status', order_id=o.id) }}" style="margin-top:4px">
-          <select name="status" onchange="this.form.submit()" style="width:150px;padding:3px 6px;font-size:12px;margin:0">
+        <form method="post" action="{{ url_for('order_set_status', order_id=o.id) }}" style="margin:0">
+          <select name="status" onchange="this.form.submit()"
+                  style="width:150px;padding:4px 8px;font-size:13px;font-weight:600;color:#fff;background:{{ o.status_color }};border:none;margin:0">
             {% if o.status not in board_statuses %}
               <option value="{{ o.status }}" selected>{{ o.status_label }} (current)</option>
             {% endif %}
@@ -73,6 +104,8 @@
             {% endfor %}
           </select>
         </form>
+        {% else %}
+          <span class="badge" style="background:{{ o.status_color }}">{{ o.status_label }}</span>
         {% endif %}
       </td>
       <td>{{ o.feedback_note or '' }}</td>
@@ -91,7 +124,35 @@
           {% if o.drive_link_list %}<a href="{{ o.drive_link_list[0] }}" target="_blank">Link</a>{% else %}—{% endif %}
         {% endif %}
       </td>
+      <td>
+        {% if current_user.is_boss %}
+        <form method="post" action="{{ url_for('order_set_date', order_id=o.id) }}"
+              style="display:flex;gap:4px;align-items:center;margin:0">
+          <input type="date" name="due_date" value="{{ o.due_date.isoformat() if o.due_date else '' }}"
+                 style="width:130px;padding:4px 6px;margin:0">
+          <button class="btn" type="submit" style="padding:4px 10px">Save</button>
+        </form>
+        {% else %}
+          {{ o.due_date if o.due_date else '—' }}
+        {% endif %}
+      </td>
       <td>{{ o.date_ordered.strftime('%b %d, %Y') if o.date_ordered else '—' }}</td>
+      <td class="actions-cell">
+        {% if current_user.is_boss %}
+        <details class="board-menu">
+          <summary>⋮</summary>
+          <div class="menu-pop">
+            <form method="post" action="{{ url_for('order_duplicate', order_id=o.id) }}">
+              <button class="btn secondary" type="submit">Duplicate</button>
+            </form>
+            <form method="post" action="{{ url_for('order_delete', order_id=o.id) }}"
+                  onsubmit="return confirm('Delete this task? This can\'t be undone.');">
+              <button class="btn danger" type="submit">Delete</button>
+            </form>
+          </div>
+        </details>
+        {% endif %}
+      </td>
     </tr>
     {% endfor %}
   </tbody>
