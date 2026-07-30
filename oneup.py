@@ -19,6 +19,12 @@ import requests
 
 BASE_URL = "https://www.oneupapp.io/api"
 TIMEOUT = 20
+# Scheduling a carousel makes OneUp fetch + validate every photo URL itself
+# before it responds, so it needs much longer than a simple lookup call —
+# especially for multi-photo zips. Retry once on a timeout/network blip
+# before giving up, since these are often transient.
+SCHEDULE_TIMEOUT = 90
+SCHEDULE_RETRIES = 1
 
 DRIVE_FILE_ID_PATTERNS = [
     re.compile(r"drive\.google\.com/file/d/([a-zA-Z0-9_-]+)"),
@@ -102,10 +108,18 @@ def schedule_image_post(
     if title:
         data["title"] = title
 
-    try:
-        r = requests.post(f"{BASE_URL}/scheduleimagepost", data=data, timeout=TIMEOUT)
-    except requests.exceptions.RequestException as e:
-        raise OneUpError(f"Couldn't reach OneUp (network error): {e}")
+    attempt = 0
+    while True:
+        try:
+            r = requests.post(f"{BASE_URL}/scheduleimagepost", data=data, timeout=SCHEDULE_TIMEOUT)
+            break
+        except requests.exceptions.RequestException as e:
+            if attempt >= SCHEDULE_RETRIES:
+                raise OneUpError(
+                    f"Couldn't reach OneUp after {attempt + 1} attempt(s) "
+                    f"(timeout={SCHEDULE_TIMEOUT}s): {e}"
+                )
+            attempt += 1
 
     try:
         payload = r.json()
