@@ -196,14 +196,15 @@ def register_routes(app):
     @app.route("/orders/import", methods=["GET", "POST"])
     @boss_required
     def order_import():
-        """Add a carousel/post that was already produced (and maybe already
-        published) outside this tool, so it shows up on the calendar too."""
+        """Create a new task/order — used by the "+ New task" modal on the
+        Board. Pub date is optional; leave it blank and set it later."""
         producers = User.query.filter_by(role="producer").order_by(User.name).all()
         if request.method == "POST":
             already_published = request.form.get("already_published") == "yes"
             producer_id = request.form.get("producer_id") or None
             language = request.form.get("language") or None
             platform = request.form.get("platform") or "instagram"
+            due_str = request.form.get("due_date")
             order = Order(
                 platform=platform,
                 language=language,
@@ -211,7 +212,7 @@ def register_routes(app):
                 quantity=int(request.form.get("quantity", 1) or 1),
                 title=request.form.get("title", "").strip(),
                 caption=request.form.get("caption", "").strip(),
-                due_date=datetime.strptime(request.form["due_date"], "%Y-%m-%d").date(),
+                due_date=datetime.strptime(due_str, "%Y-%m-%d").date() if due_str else None,
                 date_ordered=date.today(),
                 producer_id=int(producer_id) if producer_id else None,
                 created_by_id=g.user.id,
@@ -220,8 +221,8 @@ def register_routes(app):
             )
             db.session.add(order)
             db.session.commit()
-            flash("Existing carousel added.", "success")
-            return redirect(url_for("order_detail", order_id=order.id))
+            flash("New order created.", "success")
+            return redirect(url_for("board_view"))
         return render_template(
             "order_import.html",
             producers=producers,
@@ -324,6 +325,7 @@ def register_routes(app):
         language = request.args.get("language", "").strip()
         platform = request.args.get("platform", "").strip()
         status = request.args.get("status", "").strip()
+        sort = request.args.get("sort", "desc").strip()
 
         query = Order.query
         if q:
@@ -335,16 +337,19 @@ def register_routes(app):
         if status:
             query = query.filter(Order.status == status)
 
-        orders = query.order_by(
-            Order.date_ordered.is_(None), Order.date_ordered.desc(), Order.title
-        ).all()
+        date_order = Order.date_ordered.asc() if sort == "asc" else Order.date_ordered.desc()
+        orders = query.order_by(Order.date_ordered.is_(None), date_order, Order.title).all()
+
+        producers = User.query.filter_by(role="producer").order_by(User.name).all()
         return render_template(
             "board.html",
             orders=orders,
             platforms=PLATFORMS,
             languages=LANGUAGES,
             board_statuses=BOARD_STATUSES,
-            filters={"q": q, "language": language, "platform": platform, "status": status},
+            producers=producers,
+            content_types=CONTENT_TYPES,
+            filters={"q": q, "language": language, "platform": platform, "status": status, "sort": sort},
         )
 
     @app.route("/orders/<int:order_id>/set-date", methods=["POST"])
@@ -380,6 +385,16 @@ def register_routes(app):
         order.drive_links = request.form.get("drive_links", "").strip()
         db.session.commit()
         flash("Drive link updated.", "success")
+        return redirect(request.referrer or url_for("board_view"))
+
+    @app.route("/orders/<int:order_id>/set-producer", methods=["POST"])
+    @boss_required
+    def order_set_producer(order_id):
+        order = Order.query.get_or_404(order_id)
+        producer_id = request.form.get("producer_id")
+        order.producer_id = int(producer_id) if producer_id else None
+        db.session.commit()
+        flash("POC updated.", "success")
         return redirect(request.referrer or url_for("board_view"))
 
     @app.route("/orders/<int:order_id>/set-platform", methods=["POST"])
