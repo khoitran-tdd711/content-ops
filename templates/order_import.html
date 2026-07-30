@@ -7,8 +7,8 @@
   <form method="post">
     <label>Platform (optional)</label>
     <select name="platform">
+      {% for p in platforms %}<option value="{{ p }}" {{ 'selected' if p == 'instagram' }}>{{ p|title }}</option>{% endfor %}
       <option value="">— not specified —</option>
-      {% for p in platforms %}<option value="{{ p }}">{{ p|title }}</option>{% endfor %}
     </select>
 
     <label>Language (optional)</label>
