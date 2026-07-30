@@ -9,11 +9,11 @@
   Legend:
   <span class="badge" style="background:#2E6F68;color:#fff">Ordered</span>
   <span class="badge" style="background:#6F8EFF;color:#fff">In Production</span>
-  <span class="badge" style="background:#8FF0B5;color:#0D302D">Ready</span>
+  <span class="badge" style="background:#F5B942;color:#0D302D">Ready</span>
   <span class="badge" style="background:#134440;color:#fff">Scheduled</span>
   <span class="badge" style="background:#3FD27E;color:#0D302D">Published</span>
 </p>
-<p class="muted">Drag an item to a new day to reschedule it. Click it to open the order.</p>
+<p class="muted">Drag an item to a new day to reschedule it. Click it to publish or open it.</p>
 
 <div style="margin:10px 0 16px;display:flex;gap:18px;align-items:center">
   <label style="display:flex;gap:6px;align-items:center;margin:0;font-weight:500">
@@ -29,10 +29,26 @@
 
 <div id="calendar"></div>
 
+<dialog id="event-modal" style="border:none;border-radius:20px;padding:0;width:380px;max-width:90vw">
+  <div class="card" style="margin:0;border:none">
+    <h3 id="event-modal-title" style="margin:0 0 4px"></h3>
+    <p class="muted" id="event-modal-sub" style="margin:0 0 14px"></p>
+    <div style="display:flex;gap:10px">
+      <a id="event-modal-modify" class="btn secondary" style="flex:1;text-align:center">To modify</a>
+      <form id="event-modal-publish-form" method="post" style="flex:1;margin:0">
+        <button class="btn" type="submit" style="width:100%">To publish</button>
+      </form>
+    </div>
+    <button type="button" class="btn secondary" style="width:100%;margin-top:10px"
+            onclick="document.getElementById('event-modal').close()">Cancel</button>
+  </div>
+</dialog>
+
 <script>
 document.addEventListener('DOMContentLoaded', function () {
   const calendarEl = document.getElementById('calendar');
   const filterBoxes = document.querySelectorAll('.cal-filter');
+  const modal = document.getElementById('event-modal');
 
   function activeBuckets() {
     return Array.from(filterBoxes).filter(cb => cb.checked).map(cb => cb.value);
@@ -58,9 +74,12 @@ document.addEventListener('DOMContentLoaded', function () {
     },
     eventClick: function (info) {
       info.jsEvent.preventDefault();
-      if (info.event.url) {
-        window.location.href = info.event.url;
-      }
+      document.getElementById('event-modal-title').textContent = info.event.title;
+      document.getElementById('event-modal-sub').textContent =
+        'Publishing on ' + info.event.startStr;
+      document.getElementById('event-modal-modify').href = info.event.url;
+      document.getElementById('event-modal-publish-form').action = '/orders/' + info.event.id + '/publish-now';
+      modal.showModal();
     },
     eventDrop: function (info) {
       const newDate = info.event.startStr.slice(0, 10);
