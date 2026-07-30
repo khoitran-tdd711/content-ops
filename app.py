@@ -575,12 +575,15 @@ def register_routes(app):
     def settings():
         api_key = get_oneup_api_key()
         mapping = {p: Setting.get(f"oneup_social_id_{p}") for p in PLATFORMS}
-        language_mapping = {l: Setting.get(f"oneup_social_id_instagram_{l}") for l in LANGUAGES}
+        category_mapping = {p: Setting.get(f"oneup_category_id_{p}") for p in PLATFORMS}
+        language_mapping = {
+            p: {l: Setting.get(f"oneup_social_id_{p}_{l}") for l in LANGUAGES} for p in PLATFORMS
+        }
         return render_template(
             "settings.html",
             api_key=api_key,
-            category_id=Setting.get("oneup_category_id", ""),
             mapping=mapping,
+            category_mapping=category_mapping,
             platforms=PLATFORMS,
             languages=LANGUAGES,
             language_mapping=language_mapping,
@@ -590,14 +593,14 @@ def register_routes(app):
     @boss_required
     def settings_save():
         Setting.set("oneup_api_key", request.form.get("api_key", "").strip())
-        Setting.set("oneup_category_id", request.form.get("category_id", "").strip())
         for p in PLATFORMS:
             Setting.set(f"oneup_social_id_{p}", request.form.get(f"social_id_{p}", "").strip())
-        for l in LANGUAGES:
-            Setting.set(
-                f"oneup_social_id_instagram_{l}",
-                request.form.get(f"social_id_instagram_{l}", "").strip(),
-            )
+            Setting.set(f"oneup_category_id_{p}", request.form.get(f"category_id_{p}", "").strip())
+            for l in LANGUAGES:
+                Setting.set(
+                    f"oneup_social_id_{p}_{l}",
+                    request.form.get(f"social_id_{p}_{l}", "").strip(),
+                )
         flash("Settings saved.", "success")
         return redirect(url_for("settings"))
 
@@ -638,7 +641,7 @@ def publish_via_oneup(order):
     if not order.platform:
         return False, "This order has no platform set yet — edit it before scheduling."
 
-    category_id = Setting.get("oneup_category_id")
+    category_id = Setting.get(f"oneup_category_id_{order.platform}") or Setting.get("oneup_category_id")
     social_id_raw = None
     if order.language:
         social_id_raw = Setting.get(f"oneup_social_id_{order.platform}_{order.language}")
