@@ -31,6 +31,20 @@
       <input type="text" name="social_id_{{ p }}" value="{{ mapping[p] or '' }}" placeholder="paste the account ID from the lookup above">
     {% endfor %}
 
+    <div class="section-title" style="margin-top:20px">
+      Per-language Instagram accounts (optional)
+    </div>
+    <p class="muted">
+      If a language has its own dedicated Instagram account (e.g. akka.italy for Italian),
+      paste its account ID below — it'll be used instead of the plain Instagram ID above
+      whenever a task with that language is published. Leave blank to just use the
+      Instagram ID above for that language.
+    </p>
+    {% for l in languages %}
+      <label>{{ l }} — Instagram social_network_id</label>
+      <input type="text" name="social_id_instagram_{{ l }}" value="{{ language_mapping[l] or '' }}" placeholder="paste the account ID from the lookup above">
+    {% endfor %}
+
     <div style="margin-top:18px">
       <button class="btn" type="submit">Save settings</button>
     </div>
