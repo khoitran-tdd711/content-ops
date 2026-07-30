@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Add existing carousel{% endblock %}
+{% block content %}
+<div class="card" style="max-width:560px">
+  <h2 style="margin-top:0">Add an existing carousel</h2>
+  <p class="muted">For content already produced (and maybe already posted) outside this tool — it'll show up on the calendar for record-keeping.</p>
+  <form method="post">
+    <label>Platform (optional)</label>
+    <select name="platform">
+      <option value="">— not specified —</option>
+      {% for p in platforms %}<option value="{{ p }}">{{ p|title }}</option>{% endfor %}
+    </select>
+
+    <label>Language (optional)</label>
+    <select name="language">
+      <option value="">— not specified —</option>
+      {% for l in languages %}<option value="{{ l }}">{{ l }}</option>{% endfor %}
+    </select>
+
+    <label>Content type</label>
+    <select name="content_type">
+      {% for c in content_types %}<option value="{{ c }}" {{ 'selected' if c=='carousel' }}>{{ c.replace('_',' ')|title }}</option>{% endfor %}
+    </select>
+
+    <label>Quantity</label>
+    <input type="number" name="quantity" min="1" value="1" required>
+
+    <label>Date (when it was/will be posted)</label>
+    <input type="date" name="due_date" required>
+
+    <label>Producer (optional)</label>
+    <select name="producer_id">
+      <option value="">— not specified —</option>
+      {% for p in producers %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
+    </select>
+
+    <label>Title (optional)</label>
+    <input type="text" name="title" placeholder="e.g. Product launch teaser">
+
+    <label>Caption (optional)</label>
+    <textarea name="caption" placeholder="Caption text"></textarea>
+
+    <label>Drive link(s) — one per line (optional)</label>
+    <textarea name="drive_links" placeholder="https://drive.google.com/file/d/.../view"></textarea>
+
+    <label>Has this already been published?</label>
+    <select name="already_published">
+      <option value="yes">Yes — already published, just recording it</option>
+      <option value="no">No — produced but not yet published (I'll schedule it from here)</option>
+    </select>
+
+    <div style="margin-top:18px">
+      <button class="btn" type="submit">Add carousel</button>
+    </div>
+  </form>
+</div>
+{% endblock %}
