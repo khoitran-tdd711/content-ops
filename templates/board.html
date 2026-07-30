@@ -15,147 +15,233 @@
   .board-menu .menu-pop form:last-child { margin-bottom: 0; }
   .board-menu .menu-pop button { width: 100%; text-align: left; }
   td.actions-cell { position: relative; }
+  .board-wide {
+    margin-left: calc(50% - 50vw);
+    margin-right: calc(50% - 50vw);
+    max-width: 100vw;
+    padding: 0 24px;
+  }
+  #new-task-modal { border: none; border-radius: 12px; padding: 0; width: 560px; max-width: 92vw; }
+  #new-task-modal::backdrop { background: rgba(0,0,0,.4); }
 </style>
 
-<div style="display:flex;justify-content:space-between;align-items:center">
-  <h2 style="margin:0">Board</h2>
-  <a class="btn" href="{{ url_for('order_import') }}">+ New task</a>
-</div>
-<p class="muted">
-  Every carousel/post produced or ordered lives here. Set a pub date below to make it show up
-  on the Calendar.
-</p>
+<div class="board-wide">
+  <div style="display:flex;justify-content:space-between;align-items:center">
+    <h2 style="margin:0">Board</h2>
+    <button type="button" class="btn" onclick="document.getElementById('new-task-modal').showModal()">+ New task</button>
+  </div>
+  <p class="muted">
+    Every carousel/post produced or ordered lives here. Set a pub date below to make it show up
+    on the Calendar.
+  </p>
 
-<form method="get" style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:16px">
-  <div style="flex:1;min-width:220px">
-    <label style="margin:0 0 4px">Search</label>
-    <input type="text" name="q" value="{{ filters.q }}" placeholder="Carousel name…" style="margin:0">
-  </div>
-  <div>
-    <label style="margin:0 0 4px">Language</label>
-    <select name="language" style="margin:0">
-      <option value="">All</option>
-      {% for l in languages %}<option value="{{ l }}" {{ 'selected' if filters.language == l }}>{{ l }}</option>{% endfor %}
-    </select>
-  </div>
-  <div>
-    <label style="margin:0 0 4px">Platform</label>
-    <select name="platform" style="margin:0">
-      <option value="">All</option>
-      {% for p in platforms %}<option value="{{ p }}" {{ 'selected' if filters.platform == p }}>{{ p|title }}</option>{% endfor %}
-    </select>
-  </div>
-  <div>
-    <label style="margin:0 0 4px">Status</label>
-    <select name="status" style="margin:0">
-      <option value="">All</option>
-      {% for s in board_statuses %}<option value="{{ s }}" {{ 'selected' if filters.status == s }}>{{ STATUS_LABELS[s] }}</option>{% endfor %}
-    </select>
-  </div>
-  <div style="display:flex;gap:8px">
-    <button class="btn" type="submit">Filter</button>
-    <a class="btn secondary" href="{{ url_for('board_view') }}">Clear</a>
-  </div>
-</form>
+  <form method="get" style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:16px">
+    <div style="flex:1;min-width:220px">
+      <label style="margin:0 0 4px">Search</label>
+      <input type="text" name="q" value="{{ filters.q }}" placeholder="Carousel name…" style="margin:0">
+    </div>
+    <div>
+      <label style="margin:0 0 4px">Language</label>
+      <select name="language" style="margin:0">
+        <option value="">All</option>
+        {% for l in languages %}<option value="{{ l }}" {{ 'selected' if filters.language == l }}>{{ l }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label style="margin:0 0 4px">Platform</label>
+      <select name="platform" style="margin:0">
+        <option value="">All</option>
+        {% for p in platforms %}<option value="{{ p }}" {{ 'selected' if filters.platform == p }}>{{ p|title }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label style="margin:0 0 4px">Status</label>
+      <select name="status" style="margin:0">
+        <option value="">All</option>
+        {% for s in board_statuses %}<option value="{{ s }}" {{ 'selected' if filters.status == s }}>{{ STATUS_LABELS[s] }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label style="margin:0 0 4px">Sort by date ordered</label>
+      <select name="sort" style="margin:0">
+        <option value="desc" {{ 'selected' if filters.sort != 'asc' }}>Newest first</option>
+        <option value="asc" {{ 'selected' if filters.sort == 'asc' }}>Oldest first</option>
+      </select>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn" type="submit">Filter</button>
+      <a class="btn secondary" href="{{ url_for('board_view') }}">Clear</a>
+    </div>
+  </form>
 
-<div class="card" style="overflow-x:auto">
-<table>
-  <thead>
-    <tr>
-      <th>Title</th>
-      <th>Platform</th>
-      <th>Language</th>
-      <th>POC</th>
-      <th>Status</th>
-      <th>Note</th>
-      <th>Drive link</th>
-      <th>Pub date</th>
-      <th>Date ordered</th>
-      <th></th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for o in orders %}
-    <tr>
-      <td><a href="{{ url_for('order_detail', order_id=o.id) }}">{{ o.title or '(untitled)' }}</a></td>
-      <td>
-        {% if current_user.is_boss %}
-        <form method="post" action="{{ url_for('order_set_platform', order_id=o.id) }}" style="margin:0">
-          <select name="platform" onchange="this.form.submit()" style="width:110px;padding:3px 6px;font-size:12px;margin:0">
-            {% for p in platforms %}<option value="{{ p }}" {{ 'selected' if o.platform == p }}>{{ p|title }}</option>{% endfor %}
-          </select>
-        </form>
-        {% else %}
-          {{ o.platform|title if o.platform else '—' }}
-        {% endif %}
-      </td>
-      <td>{{ o.language or '—' }}</td>
-      <td>{{ o.producer.name if o.producer else '—' }}</td>
-      <td>
-        {% if current_user.is_boss %}
-        <form method="post" action="{{ url_for('order_set_status', order_id=o.id) }}" style="margin:0">
-          <select name="status" onchange="this.form.submit()"
-                  style="width:150px;padding:4px 8px;font-size:13px;font-weight:600;color:#fff;background:{{ o.status_color }};border:none;margin:0">
-            {% if o.status not in board_statuses %}
-              <option value="{{ o.status }}" selected>{{ o.status_label }} (current)</option>
-            {% endif %}
-            {% for s in board_statuses %}
-              <option value="{{ s }}" {{ 'selected' if o.status == s }}>{{ STATUS_LABELS[s] }}</option>
-            {% endfor %}
-          </select>
-        </form>
-        {% else %}
-          <span class="badge" style="background:{{ o.status_color }}">{{ o.status_label }}</span>
-        {% endif %}
-      </td>
-      <td>{{ o.feedback_note or '' }}</td>
-      <td>
-        {% if current_user.is_boss %}
-        <form method="post" action="{{ url_for('order_set_drive_link', order_id=o.id) }}"
-              style="display:flex;gap:4px;align-items:center;margin:0">
-          <input type="text" name="drive_links" value="{{ o.drive_links or '' }}" placeholder="Drive link"
-                 style="width:150px;padding:4px 6px;margin:0">
-          <button class="btn" type="submit" style="padding:4px 10px">Save</button>
-        </form>
-        {% if o.drive_link_list %}
-          <div style="margin-top:4px"><a href="{{ o.drive_link_list[0] }}" target="_blank">Open</a></div>
-        {% endif %}
-        {% else %}
-          {% if o.drive_link_list %}<a href="{{ o.drive_link_list[0] }}" target="_blank">Link</a>{% else %}—{% endif %}
-        {% endif %}
-      </td>
-      <td>
-        {% if current_user.is_boss %}
-        <form method="post" action="{{ url_for('order_set_date', order_id=o.id) }}"
-              style="display:flex;gap:4px;align-items:center;margin:0">
-          <input type="date" name="due_date" value="{{ o.due_date.isoformat() if o.due_date else '' }}"
-                 style="width:130px;padding:4px 6px;margin:0">
-          <button class="btn" type="submit" style="padding:4px 10px">Save</button>
-        </form>
-        {% else %}
-          {{ o.due_date if o.due_date else '—' }}
-        {% endif %}
-      </td>
-      <td>{{ o.date_ordered.strftime('%b %d, %Y') if o.date_ordered else '—' }}</td>
-      <td class="actions-cell">
-        {% if current_user.is_boss %}
-        <details class="board-menu">
-          <summary>⋮</summary>
-          <div class="menu-pop">
-            <form method="post" action="{{ url_for('order_duplicate', order_id=o.id) }}">
-              <button class="btn secondary" type="submit">Duplicate</button>
-            </form>
-            <form method="post" action="{{ url_for('order_delete', order_id=o.id) }}"
-                  onsubmit="return confirm('Delete this task? This can\'t be undone.');">
-              <button class="btn danger" type="submit">Delete</button>
-            </form>
-          </div>
-        </details>
-        {% endif %}
-      </td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+  <div class="card" style="overflow-x:auto">
+  <table>
+    <thead>
+      <tr>
+        <th>Title</th>
+        <th>Platform</th>
+        <th>Language</th>
+        <th>POC</th>
+        <th>Status</th>
+        <th>Note</th>
+        <th>Drive link</th>
+        <th>Pub date</th>
+        <th>Date ordered</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for o in orders %}
+      <tr>
+        <td><a href="{{ url_for('order_detail', order_id=o.id) }}">{{ o.title or '(untitled)' }}</a></td>
+        <td>
+          {% if current_user.is_boss %}
+          <form method="post" action="{{ url_for('order_set_platform', order_id=o.id) }}" style="margin:0">
+            <select name="platform" onchange="this.form.submit()" style="width:110px;padding:3px 6px;font-size:12px;margin:0">
+              {% for p in platforms %}<option value="{{ p }}" {{ 'selected' if o.platform == p }}>{{ p|title }}</option>{% endfor %}
+            </select>
+          </form>
+          {% else %}
+            {{ o.platform|title if o.platform else '—' }}
+          {% endif %}
+        </td>
+        <td>{{ o.language or '—' }}</td>
+        <td>
+          {% if current_user.is_boss %}
+          <form method="post" action="{{ url_for('order_set_producer', order_id=o.id) }}" style="margin:0">
+            <select name="producer_id" onchange="this.form.submit()" style="width:120px;padding:3px 6px;font-size:12px;margin:0">
+              <option value="">—</option>
+              {% for p in producers %}<option value="{{ p.id }}" {{ 'selected' if o.producer_id == p.id }}>{{ p.name }}</option>{% endfor %}
+            </select>
+          </form>
+          {% else %}
+            {{ o.producer.name if o.producer else '—' }}
+          {% endif %}
+        </td>
+        <td>
+          {% if current_user.is_boss %}
+          <form method="post" action="{{ url_for('order_set_status', order_id=o.id) }}" style="margin:0">
+            <select name="status" onchange="this.form.submit()"
+                    style="width:150px;padding:4px 8px;font-size:13px;font-weight:600;color:{{ o.status_text_color }};background:{{ o.status_color }};border:none;margin:0">
+              {% if o.status not in board_statuses %}
+                <option value="{{ o.status }}" selected>{{ o.status_label }} (current)</option>
+              {% endif %}
+              {% for s in board_statuses %}
+                <option value="{{ s }}" {{ 'selected' if o.status == s }}>{{ STATUS_LABELS[s] }}</option>
+              {% endfor %}
+            </select>
+          </form>
+          {% else %}
+            <span class="badge" style="background:{{ o.status_color }};color:{{ o.status_text_color }}">{{ o.status_label }}</span>
+          {% endif %}
+        </td>
+        <td>{{ o.feedback_note or '' }}</td>
+        <td>
+          {% if current_user.is_boss %}
+          <form method="post" action="{{ url_for('order_set_drive_link', order_id=o.id) }}"
+                style="display:flex;gap:4px;align-items:center;margin:0">
+            <input type="text" name="drive_links" value="{{ o.drive_links or '' }}" placeholder="Drive link"
+                   style="width:150px;padding:4px 6px;margin:0">
+            <button class="btn" type="submit" style="padding:4px 10px">Save</button>
+          </form>
+          {% if o.drive_link_list %}
+            <div style="margin-top:4px"><a href="{{ o.drive_link_list[0] }}" target="_blank">Open</a></div>
+          {% endif %}
+          {% else %}
+            {% if o.drive_link_list %}<a href="{{ o.drive_link_list[0] }}" target="_blank">Link</a>{% else %}—{% endif %}
+          {% endif %}
+        </td>
+        <td>
+          {% if current_user.is_boss %}
+          <form method="post" action="{{ url_for('order_set_date', order_id=o.id) }}"
+                style="display:flex;gap:4px;align-items:center;margin:0">
+            <input type="date" name="due_date" value="{{ o.due_date.isoformat() if o.due_date else '' }}"
+                   style="width:130px;padding:4px 6px;margin:0">
+            <button class="btn" type="submit" style="padding:4px 10px">Save</button>
+          </form>
+          {% else %}
+            {{ o.due_date if o.due_date else '—' }}
+          {% endif %}
+        </td>
+        <td>{{ o.date_ordered.strftime('%b %d, %Y') if o.date_ordered else '—' }}</td>
+        <td class="actions-cell">
+          {% if current_user.is_boss %}
+          <details class="board-menu">
+            <summary>⋮</summary>
+            <div class="menu-pop">
+              <form method="post" action="{{ url_for('order_duplicate', order_id=o.id) }}">
+                <button class="btn secondary" type="submit">Duplicate</button>
+              </form>
+              <form method="post" action="{{ url_for('order_delete', order_id=o.id) }}"
+                    onsubmit="return confirm('Delete this task? This can\'t be undone.');">
+                <button class="btn danger" type="submit">Delete</button>
+              </form>
+            </div>
+          </details>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
 </div>
+
+<dialog id="new-task-modal">
+  <div class="card" style="margin:0;border:none;max-height:85vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h3 style="margin:0">Create new order</h3>
+      <button type="button" class="btn secondary" style="padding:4px 10px"
+              onclick="document.getElementById('new-task-modal').close()">✕</button>
+    </div>
+    <form method="post" action="{{ url_for('order_import') }}" style="margin-top:10px">
+      <label>Platform</label>
+      <select name="platform">
+        {% for p in platforms %}<option value="{{ p }}" {{ 'selected' if p == 'instagram' }}>{{ p|title }}</option>{% endfor %}
+      </select>
+
+      <label>Language (optional)</label>
+      <select name="language">
+        <option value="">— not specified —</option>
+        {% for l in languages %}<option value="{{ l }}">{{ l }}</option>{% endfor %}
+      </select>
+
+      <label>Content type</label>
+      <select name="content_type">
+        {% for c in content_types %}<option value="{{ c }}" {{ 'selected' if c=='carousel' }}>{{ c.replace('_',' ')|title }}</option>{% endfor %}
+      </select>
+
+      <label>Quantity</label>
+      <input type="number" name="quantity" min="1" value="1" required>
+
+      <label>Pub date (optional — leave blank if not scheduled yet)</label>
+      <input type="date" name="due_date">
+
+      <label>POC (optional)</label>
+      <select name="producer_id">
+        <option value="">— not specified —</option>
+        {% for p in producers %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
+      </select>
+
+      <label>Title</label>
+      <input type="text" name="title" placeholder="e.g. Product launch teaser">
+
+      <label>Caption (optional)</label>
+      <textarea name="caption" placeholder="Caption text"></textarea>
+
+      <label>Drive link(s) — one per line (optional)</label>
+      <textarea name="drive_links" placeholder="https://drive.google.com/file/d/.../view"></textarea>
+
+      <label>Has this already been published?</label>
+      <select name="already_published">
+        <option value="no">No — not published yet</option>
+        <option value="yes">Yes — already published</option>
+      </select>
+
+      <div style="margin-top:18px">
+        <button class="btn" type="submit">Create new order</button>
+      </div>
+    </form>
+  </div>
+</dialog>
 {% endblock %}
