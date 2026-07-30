@@ -382,6 +382,49 @@ def register_routes(app):
         flash("Drive link updated.", "success")
         return redirect(request.referrer or url_for("board_view"))
 
+    @app.route("/orders/<int:order_id>/set-platform", methods=["POST"])
+    @boss_required
+    def order_set_platform(order_id):
+        order = Order.query.get_or_404(order_id)
+        platform = request.form.get("platform")
+        if platform:
+            order.platform = platform
+        db.session.commit()
+        flash("Platform updated.", "success")
+        return redirect(request.referrer or url_for("board_view"))
+
+    @app.route("/orders/<int:order_id>/duplicate", methods=["POST"])
+    @boss_required
+    def order_duplicate(order_id):
+        order = Order.query.get_or_404(order_id)
+        copy = Order(
+            platform=order.platform,
+            language=order.language,
+            content_type=order.content_type,
+            quantity=order.quantity,
+            title=order.title,
+            caption=order.caption,
+            due_date=order.due_date,
+            date_ordered=order.date_ordered,
+            producer_id=order.producer_id,
+            created_by_id=g.user.id,
+            drive_links=order.drive_links,
+            status=order.status,
+        )
+        db.session.add(copy)
+        db.session.commit()
+        flash("Duplicated — edit the copy (e.g. change platform) as needed.", "success")
+        return redirect(request.referrer or url_for("board_view"))
+
+    @app.route("/orders/<int:order_id>/delete", methods=["POST"])
+    @boss_required
+    def order_delete(order_id):
+        order = Order.query.get_or_404(order_id)
+        db.session.delete(order)
+        db.session.commit()
+        flash("Task deleted.", "success")
+        return redirect(request.referrer or url_for("board_view"))
+
     @app.route("/orders/<int:order_id>")
     @login_required
     def order_detail(order_id):
