@@ -16,34 +16,58 @@
     <label>OneUp API key</label>
     <input type="text" name="api_key" value="{{ api_key or '' }}" placeholder="paste your OneUp API key">
 
-    <label>OneUp category ID <button type="button" class="btn secondary" id="btn-fetch-categories" style="margin-left:8px;padding:2px 10px">Look up my categories</button></label>
-    <input type="text" name="category_id" value="{{ category_id }}" placeholder="e.g. 49839">
-    <div id="categories-result" class="muted" style="margin-top:6px"></div>
+    <div class="section-title" style="margin-top:20px">
+      OneUp category ID per platform
+      <button type="button" class="btn secondary" id="btn-fetch-categories" style="margin-left:8px;padding:2px 10px">Look up my categories</button>
+    </div>
+    <p class="muted">Instagram and LinkedIn (etc.) can each live in a different OneUp category — set one ID per platform.</p>
+    <div id="categories-result" class="muted" style="margin-bottom:10px"></div>
+
+    {% for p in platforms %}
+      <label>{{ p|title }} — OneUp category ID</label>
+      <input type="text" name="category_id_{{ p }}" value="{{ category_mapping[p] or '' }}" placeholder="e.g. 182218">
+    {% endfor %}
 
     <div class="section-title" style="margin-top:20px">
-      Which OneUp account handles each platform?
+      Default OneUp account per platform
       <button type="button" class="btn secondary" id="btn-fetch-accounts" style="margin-left:8px;padding:2px 10px">Look up my connected accounts</button>
     </div>
     <div id="accounts-result" class="muted" style="margin-bottom:10px"></div>
 
     {% for p in platforms %}
-      <label>{{ p|title }} — OneUp social_network_id</label>
+      <label>{{ p|title }} — OneUp social_network_id (default account)</label>
       <input type="text" name="social_id_{{ p }}" value="{{ mapping[p] or '' }}" placeholder="paste the account ID from the lookup above">
     {% endfor %}
 
-    <div class="section-title" style="margin-top:20px">
-      Per-language Instagram accounts (optional)
-    </div>
+    <div class="section-title" style="margin-top:20px">Per-language accounts (optional overrides)</div>
     <p class="muted">
-      If a language has its own dedicated Instagram account (e.g. akka.italy for Italian),
-      paste its account ID below — it'll be used instead of the plain Instagram ID above
-      whenever a task with that language is published. Leave blank to just use the
-      Instagram ID above for that language.
+      If a language has its own dedicated account on a platform (e.g. akka.italy for Italian on
+      Instagram, or "Akka Spain" for Spanish on LinkedIn), paste its account ID in that cell.
+      Leave a cell blank to just use the platform's default account above for that language.
     </p>
-    {% for l in languages %}
-      <label>{{ l }} — Instagram social_network_id</label>
-      <input type="text" name="social_id_instagram_{{ l }}" value="{{ language_mapping[l] or '' }}" placeholder="paste the account ID from the lookup above">
-    {% endfor %}
+    <div style="overflow-x:auto">
+    <table>
+      <thead>
+        <tr>
+          <th>Language</th>
+          {% for p in platforms %}<th>{{ p|title }}</th>{% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for l in languages %}
+        <tr>
+          <td>{{ l }}</td>
+          {% for p in platforms %}
+          <td>
+            <input type="text" name="social_id_{{ p }}_{{ l }}" value="{{ language_mapping[p][l] or '' }}"
+                   style="width:150px;padding:4px 6px;margin:0" placeholder="—">
+          </td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
 
     <div style="margin-top:18px">
       <button class="btn" type="submit">Save settings</button>
