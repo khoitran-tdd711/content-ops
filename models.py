@@ -101,8 +101,7 @@ class Order(db.Model):
     quantity = db.Column(db.Integer, default=1)
     title = db.Column(db.String(200))
     caption = db.Column(db.Text)
-    due_date = db.Column(db.Date, nullable=False)
-
+    due_date = db.Column(db.Date, nullable=True)  # blank until a pub date is assigned on the Board
     producer_id = db.Column(db.Integer, db.ForeignKey("user.id"))
     created_by_id = db.Column(db.Integer, db.ForeignKey("user.id"))
 
