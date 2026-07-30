@@ -12,6 +12,7 @@ from flask import (
     abort,
     flash,
     g,
+    has_request_context,
     redirect,
     render_template,
     request,
@@ -19,6 +20,7 @@ from flask import (
     session,
     url_for,
 )
+from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.utils import secure_filename
 
 import drive
@@ -45,6 +47,11 @@ from models import (
 def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
+    # Render (like most hosts) terminates HTTPS at its edge and forwards plain
+    # HTTP to this app, setting X-Forwarded-Proto/Host. Without this, Flask
+    # thinks every request is plain http:// and generated links (like the
+    # temporary photo URLs OneUp fetches) come out wrong.
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
     db.init_app(app)
 
     with app.app_context():
@@ -788,9 +795,15 @@ def expand_drive_links(order):
         for fname, data in images:
             safe_name = secure_filename(fname) or "image.jpg"
             save_temp_media(token, safe_name, data)
-            # Built by hand (not url_for) so this also works when called
-            # outside an active request/app context.
-            urls.append(f"{Config.BASE_URL.rstrip('/')}/media/{token}/{safe_name}")
+            # Use the actual host of the incoming request (e.g. your real
+            # https://xxxx.onrender.com address) rather than the BASE_URL
+            # config value, which defaults to http://localhost:5000 and is
+            # unreachable from OneUp's servers unless set correctly on Render.
+            if has_request_context():
+                base = request.host_url.rstrip("/")
+            else:
+                base = Config.BASE_URL.rstrip("/")
+            urls.append(f"{base}/media/{token}/{safe_name}")
     return urls
 
 
