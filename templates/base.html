@@ -12,6 +12,7 @@
   <div class="nav">
     <a class="brand" href="{{ url_for('calendar_view') }}">Content Ops</a>
     <a href="{{ url_for('calendar_view') }}">Calendar</a>
+        <a href="{{ url_for('board_view') }}">Board</a>
     {% if current_user.is_boss %}
        <a href="{{ url_for('order_new') }}">New order</a>
       <a href="{{ url_for('order_import') }}">Add existing carousel</a>
