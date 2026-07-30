@@ -161,6 +161,8 @@ def register_routes(app):
                     "color": o.status_color,
                     "url": url_for("order_detail", order_id=o.id),
                     "bucket": bucket,
+                    "caption": o.caption or "",
+                    "scheduledAt": o.scheduled_at.strftime("%Y-%m-%dT%H:%M") if o.scheduled_at else None,
                 }
             )
         return {"events": events}
@@ -204,7 +206,8 @@ def register_routes(app):
             producer_id = request.form.get("producer_id") or None
             language = request.form.get("language") or None
             platform = request.form.get("platform") or "instagram"
-            due_str = request.form.get("due_date")
+            scheduled_str = request.form.get("scheduled_at")
+            scheduled_at = datetime.strptime(scheduled_str, "%Y-%m-%dT%H:%M") if scheduled_str else None
             order = Order(
                 platform=platform,
                 language=language,
@@ -212,7 +215,8 @@ def register_routes(app):
                 quantity=int(request.form.get("quantity", 1) or 1),
                 title=request.form.get("title", "").strip(),
                 caption=request.form.get("caption", "").strip(),
-                due_date=datetime.strptime(due_str, "%Y-%m-%d").date() if due_str else None,
+                due_date=scheduled_at.date() if scheduled_at else None,
+                scheduled_at=scheduled_at,
                 date_ordered=date.today(),
                 producer_id=int(producer_id) if producer_id else None,
                 created_by_id=g.user.id,
@@ -356,8 +360,13 @@ def register_routes(app):
     @boss_required
     def order_set_date(order_id):
         order = Order.query.get_or_404(order_id)
-        due_str = request.form.get("due_date")
-        order.due_date = datetime.strptime(due_str, "%Y-%m-%d").date() if due_str else None
+        scheduled_str = request.form.get("scheduled_at")
+        if scheduled_str:
+            order.scheduled_at = datetime.strptime(scheduled_str, "%Y-%m-%dT%H:%M")
+            order.due_date = order.scheduled_at.date()
+        else:
+            order.scheduled_at = None
+            order.due_date = None
         platform = request.form.get("platform")
         if platform:
             order.platform = platform
@@ -517,16 +526,25 @@ def register_routes(app):
     @app.route("/orders/<int:order_id>/publish-now", methods=["POST"])
     @boss_required
     def order_publish_now(order_id):
-        """Quick action from the Calendar popup — schedules straight through
-        OneUp's API using the pub date already set, no form needed."""
+        """Confirm & Publish from the Calendar popup — takes the (possibly
+        edited) date/time and description from that form, saves them, then
+        schedules straight through OneUp's API."""
         order = Order.query.get_or_404(order_id)
-        if not order.due_date:
-            flash("This task has no pub date set yet — set one on the Board or Calendar first.", "error")
-            return redirect(url_for("calendar_view"))
 
-        if not order.scheduled_at:
+        scheduled_str = request.form.get("scheduled_at")
+        if scheduled_str:
+            order.scheduled_at = datetime.strptime(scheduled_str, "%Y-%m-%dT%H:%M")
+            order.due_date = order.scheduled_at.date()
+        elif not order.scheduled_at:
+            if not order.due_date:
+                flash("This task has no pub date set yet — set one on the Board or Calendar first.", "error")
+                return redirect(url_for("calendar_view"))
             order.scheduled_at = datetime.combine(order.due_date, datetime.min.time().replace(hour=12))
-            db.session.commit()
+
+        if "caption" in request.form:
+            order.caption = request.form.get("caption", "").strip()
+
+        db.session.commit()
 
         api_key = get_oneup_api_key()
         if not api_key:
