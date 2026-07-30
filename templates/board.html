@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Board{% endblock %}
+{% block content %}
+<h2 style="margin-top:0">Board</h2>
+<p class="muted">
+  Every carousel/post produced or ordered lives here. Setting a pub date (and a platform,
+  if it doesn't have one) is what makes it show up on the Calendar. Want the same content
+  on another platform? Use "Add existing carousel" again with the new platform.
+</p>
+<div class="card" style="overflow-x:auto">
+<table>
+  <thead>
+    <tr>
+      <th>Title</th>
+      <th>Platform</th>
+      <th>Language</th>
+      <th>POC</th>
+      <th>Status</th>
+      <th>Note</th>
+      <th>Drive link</th>
+      <th>Pub date</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for o in orders %}
+    <tr>
+      <td><a href="{{ url_for('order_detail', order_id=o.id) }}">{{ o.title or '(untitled)' }}</a></td>
+      <td>{{ o.platform|title if o.platform else '—' }}</td>
+      <td>{{ o.language or '—' }}</td>
+      <td>{{ o.producer.name if o.producer else '—' }}</td>
+      <td><span class="badge" style="background:{{ o.status_color }}">{{ o.status_label }}</span></td>
+      <td>{{ o.feedback_note or '' }}</td>
+      <td>
+        {% if o.drive_link_list %}<a href="{{ o.drive_link_list[0] }}" target="_blank">Link</a>{% else %}—{% endif %}
+      </td>
+      <td>
+        {% if current_user.is_boss %}
+        <form method="post" action="{{ url_for('order_set_date', order_id=o.id) }}"
+              style="display:flex;gap:4px;align-items:center;margin:0">
+          <input type="date" name="due_date" value="{{ o.due_date.isoformat() if o.due_date else '' }}"
+                 style="width:130px;padding:4px 6px;margin:0">
+          {% if not o.platform %}
+          <select name="platform" style="width:100px;padding:4px 6px;margin:0">
+            <option value="">platform…</option>
+            {% for p in platforms %}<option value="{{ p }}">{{ p|title }}</option>{% endfor %}
+          </select>
+          {% endif %}
+          <button class="btn" type="submit" style="padding:4px 10px">Save</button>
+        </form>
+        {% else %}
+          {{ o.due_date if o.due_date else '—' }}
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}
