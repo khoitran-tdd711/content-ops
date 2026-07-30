@@ -104,5 +104,9 @@ def extract_images(zip_bytes):
                 images.append((base, zf.read(info)))
     except zipfile.BadZipFile:
         raise DriveError("That file looked like a zip but couldn't be opened — it may be corrupted.")
+    except DriveError:
+        raise
+    except Exception as e:  # noqa: BLE001 - never let a weird zip crash the whole publish request
+        raise DriveError(f"Couldn't read the photos out of that zip: {e}")
     images.sort(key=lambda pair: pair[0])
     return images
