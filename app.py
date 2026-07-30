@@ -127,6 +127,8 @@ def register_routes(app):
         orders = Order.query.all()
         events = []
         for o in orders:
+            if not o.due_date:
+                continue  # no pub date yet -> lives on the Board only, not the calendar
             label_bits = [f"{o.quantity}x {o.content_type}"]
             if o.platform:
                 label_bits.append(o.platform.title())
@@ -244,7 +246,7 @@ def register_routes(app):
                 flash("Couldn't find a project table in that file.", "error")
                 return redirect(url_for("order_import_tracker"))
 
-           # One bulk lookup instead of a query per project/language (was
+            # One bulk lookup instead of a query per project/language (was
             # ~1,300 round-trips for a 650-row sheet -> request timeouts).
             titles = [p["project"] for p in projects]
             existing_rows = Order.query.filter(Order.title.in_(titles)).all()
@@ -253,7 +255,6 @@ def register_routes(app):
             created, updated, skipped = 0, 0, 0
             new_orders = []
             for proj in projects:
-                due = proj["folder_created"] or date.today()
                 for lang, info in proj["languages"].items():
                     if not info["ready"]:
                         continue
@@ -272,7 +273,7 @@ def register_routes(app):
                         content_type="carousel",
                         quantity=1,
                         title=proj["project"],
-                        due_date=due,
+                        due_date=None,  # no pub date yet — set it later on the Board
                         created_by_id=g.user.id,
                         status=status,
                     )
@@ -288,6 +289,29 @@ def register_routes(app):
             return redirect(url_for("calendar_view"))
 
         return render_template("order_import_tracker.html")
+
+    @app.route("/board")
+    @login_required
+    def board_view():
+        """Flat tracker of every order/carousel — the source of truth. Setting
+        a pub date here is what makes an item show up on the Calendar."""
+        orders = Order.query.order_by(
+            Order.due_date.is_(None).desc(), Order.due_date, Order.title
+        ).all()
+        return render_template("board.html", orders=orders, platforms=PLATFORMS)
+
+    @app.route("/orders/<int:order_id>/set-date", methods=["POST"])
+    @boss_required
+    def order_set_date(order_id):
+        order = Order.query.get_or_404(order_id)
+        due_str = request.form.get("due_date")
+        order.due_date = datetime.strptime(due_str, "%Y-%m-%d").date() if due_str else None
+        platform = request.form.get("platform")
+        if platform:
+            order.platform = platform
+        db.session.commit()
+        flash("Pub date updated.", "success")
+        return redirect(request.referrer or url_for("board_view"))
 
     @app.route("/orders/<int:order_id>")
     @login_required
