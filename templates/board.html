@@ -23,6 +23,16 @@
   }
   #new-task-modal { border: none; border-radius: 12px; padding: 0; width: 560px; max-width: 92vw; }
   #new-task-modal::backdrop { background: rgba(0,0,0,.4); }
+  #note-modal { border: none; border-radius: 12px; padding: 0; width: 420px; max-width: 92vw; }
+  #note-modal::backdrop { background: rgba(0,0,0,.4); }
+  #bulk-bar {
+    display: none; align-items: center; gap: 10px; margin-bottom: 12px;
+    background: var(--bg); border-radius: 10px; padding: 8px 14px;
+  }
+  .note-btn {
+    max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    display: inline-block; text-align: left;
+  }
 </style>
 
 <div class="board-wide">
@@ -74,10 +84,23 @@
     </div>
   </form>
 
+  {% if current_user.is_boss %}
+  <div id="bulk-bar">
+    <span id="bulk-count" style="font-weight:600"></span>
+    <select id="bulk-status-select" style="width:150px;margin:0">
+      {% for s in board_statuses %}<option value="{{ s }}">{{ STATUS_LABELS[s] }}</option>{% endfor %}
+    </select>
+    <button type="button" class="btn" style="padding:4px 12px" onclick="submitBulk('status')">Apply status</button>
+    <button type="button" class="btn danger" style="padding:4px 12px" onclick="submitBulk('delete')">Delete selected</button>
+  </div>
+  <form id="bulk-form" method="post" style="display:none"></form>
+  {% endif %}
+
   <div class="card" style="overflow-x:auto">
   <table>
     <thead>
       <tr>
+        {% if current_user.is_boss %}<th style="width:24px"><input type="checkbox" id="select-all" style="width:auto;margin:0"></th>{% endif %}
         <th>Title</th>
         <th>Platform</th>
         <th>Language</th>
@@ -93,6 +116,9 @@
     <tbody>
       {% for o in orders %}
       <tr>
+        {% if current_user.is_boss %}
+        <td><input type="checkbox" class="row-check" value="{{ o.id }}" style="width:auto;margin:0"></td>
+        {% endif %}
         <td><a href="{{ url_for('order_detail', order_id=o.id) }}">{{ o.title or '(untitled)' }}</a></td>
         <td>
           {% if current_user.is_boss %}
@@ -105,7 +131,18 @@
             {{ o.platform|title if o.platform else '—' }}
           {% endif %}
         </td>
-        <td>{{ o.language or '—' }}</td>
+        <td>
+          {% if current_user.is_boss %}
+          <form method="post" action="{{ url_for('order_set_language', order_id=o.id) }}" style="margin:0">
+            <select name="language" onchange="this.form.submit()" style="width:110px;padding:3px 6px;font-size:12px;margin:0">
+              <option value="" {{ 'selected' if not o.language }}>—</option>
+              {% for l in languages %}<option value="{{ l }}" {{ 'selected' if o.language == l }}>{{ l }}</option>{% endfor %}
+            </select>
+          </form>
+          {% else %}
+            {{ o.language or '—' }}
+          {% endif %}
+        </td>
         <td>
           {% if current_user.is_boss %}
           <form method="post" action="{{ url_for('order_set_producer', order_id=o.id) }}" style="margin:0">
@@ -135,7 +172,16 @@
             <span class="badge" style="background:{{ o.status_color }};color:{{ o.status_text_color }}">{{ o.status_label }}</span>
           {% endif %}
         </td>
-        <td>{{ o.feedback_note or '' }}</td>
+        <td>
+          {% if current_user.is_boss %}
+          <button type="button" class="btn secondary note-btn" style="padding:4px 10px;font-size:12px"
+                  onclick="openNoteModal({{ o.id }}, {{ (o.feedback_note or '')|tojson }})">
+            {{ o.feedback_note if o.feedback_note else 'Add note' }}
+          </button>
+          {% else %}
+            {{ o.feedback_note or '' }}
+          {% endif %}
+        </td>
         <td>
           {% if current_user.is_boss %}
           <form method="post" action="{{ url_for('order_set_drive_link', order_id=o.id) }}"
@@ -245,4 +291,81 @@
     </form>
   </div>
 </dialog>
+
+<dialog id="note-modal">
+  <div class="card" style="margin:0;border:none">
+    <h3 style="margin:0 0 10px">Note</h3>
+    <form id="note-form" method="post">
+      <textarea id="note-textarea" name="feedback_note" rows="5" placeholder="Write a note…"></textarea>
+      <div style="display:flex;gap:10px;margin-top:14px">
+        <button type="button" class="btn secondary" style="flex:1"
+                onclick="document.getElementById('note-modal').close()">Cancel</button>
+        <button class="btn" type="submit" style="flex:1">Save</button>
+      </div>
+    </form>
+  </div>
+</dialog>
+
+{% if current_user.is_boss %}
+<script>
+function openNoteModal(orderId, currentNote) {
+  document.getElementById('note-textarea').value = currentNote;
+  document.getElementById('note-form').action = '/orders/' + orderId + '/set-note';
+  document.getElementById('note-modal').showModal();
+}
+
+(function () {
+  const rowChecks = document.querySelectorAll('.row-check');
+  const selectAll = document.getElementById('select-all');
+  const bulkBar = document.getElementById('bulk-bar');
+  const bulkCount = document.getElementById('bulk-count');
+
+  function selectedIds() {
+    return Array.from(document.querySelectorAll('.row-check:checked')).map(cb => cb.value);
+  }
+
+  function updateBulkBar() {
+    const ids = selectedIds();
+    bulkBar.style.display = ids.length ? 'flex' : 'none';
+    bulkCount.textContent = ids.length + ' selected';
+    if (selectAll) selectAll.checked = ids.length > 0 && ids.length === rowChecks.length;
+  }
+
+  rowChecks.forEach(cb => cb.addEventListener('change', updateBulkBar));
+  if (selectAll) {
+    selectAll.addEventListener('change', function () {
+      rowChecks.forEach(cb => { cb.checked = this.checked; });
+      updateBulkBar();
+    });
+  }
+
+  window.submitBulk = function (action) {
+    const ids = selectedIds();
+    if (!ids.length) return;
+    const form = document.getElementById('bulk-form');
+    form.innerHTML = '';
+    ids.forEach(function (id) {
+      const inp = document.createElement('input');
+      inp.type = 'hidden';
+      inp.name = 'order_ids';
+      inp.value = id;
+      form.appendChild(inp);
+    });
+    if (action === 'delete') {
+      if (!confirm('Delete ' + ids.length + ' task(s)? This can\'t be undone.')) return;
+      form.action = "{{ url_for('orders_bulk_delete') }}";
+    } else {
+      const status = document.getElementById('bulk-status-select').value;
+      const inp = document.createElement('input');
+      inp.type = 'hidden';
+      inp.name = 'status';
+      inp.value = status;
+      form.appendChild(inp);
+      form.action = "{{ url_for('orders_bulk_status') }}";
+    }
+    form.submit();
+  };
+})();
+</script>
+{% endif %}
 {% endblock %}
