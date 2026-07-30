@@ -5,7 +5,9 @@
 <div class="card">
   <span class="badge" style="background:{{ order.status_color }}">{{ order.status_label }}</span>
   <h2 style="margin:10px 0 4px">
-    {{ order.quantity }}x {{ order.content_type.replace('_',' ')|title }} — {{ order.platform|title }}
+    {{ order.quantity }}x {{ order.content_type.replace('_',' ')|title }}
+    {% if order.platform %} — {{ order.platform|title }}{% endif %}
+    {% if order.language %} — {{ order.language }}{% endif %}
   </h2>
   <p class="muted">
     Due {{ order.due_date }}
@@ -72,6 +74,15 @@
     <p class="muted">OneUp isn't connected yet (see Settings). This will mark the order as "sent to OneUp" so you can upload it there yourself.</p>
   {% endif %}
   <form method="post" action="{{ url_for('order_schedule', order_id=order.id) }}">
+    {% if not order.platform %}
+    <label>Platform (not set yet — required to schedule)</label>
+    <select name="platform" required>
+      <option value="instagram">Instagram</option>
+      <option value="linkedin">Linkedin</option>
+      <option value="facebook">Facebook</option>
+      <option value="tiktok">Tiktok</option>
+    </select>
+    {% endif %}
     <label>Publish date &amp; time</label>
     <input type="datetime-local" name="scheduled_at" required>
     <div style="margin-top:14px">
@@ -98,6 +109,13 @@
 <div class="card">
   <div class="section-title">Scheduled</div>
   <p>Publishing at <strong>{{ order.scheduled_at }}</strong>.</p>
+</div>
+{% endif %}
+
+{% if order.status == 'already_published' %}
+<div class="card">
+  <div class="section-title">Already published</div>
+  <p class="muted">Imported as a record of existing content — no action needed here.</p>
 </div>
 {% endif %}
 
