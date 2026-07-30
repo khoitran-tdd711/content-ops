@@ -494,6 +494,7 @@ def register_routes(app):
         order.scheduled_at = datetime.strptime(scheduled_at_str, "%Y-%m-%dT%H:%M")
         if not order.platform and request.form.get("platform"):
             order.platform = request.form.get("platform")
+        db.session.commit()
 
         api_key = get_oneup_api_key()
         if not api_key:
@@ -507,50 +508,36 @@ def register_routes(app):
             )
             return redirect(url_for("order_detail", order_id=order.id))
 
-        if not order.platform:
-            flash("This order has no platform set yet — edit it before scheduling.", "error")
-            return redirect(url_for("order_detail", order_id=order.id))
-
-        category_id = Setting.get("oneup_category_id")
-        social_id_raw = Setting.get(f"oneup_social_id_{order.platform}")
-        if not category_id or not social_id_raw:
-            flash(
-                f"No OneUp account is mapped for {order.platform.title()} yet. "
-                "Set it up in Settings first.",
-                "error",
-            )
-            return redirect(url_for("order_detail", order_id=order.id))
-
-        image_urls = [oneup.normalize_drive_link(link) for link in order.drive_link_list]
-        if not image_urls:
-            flash("This order has no media links to publish.", "error")
-            return redirect(url_for("order_detail", order_id=order.id))
-
-        try:
-            social_ids = json.loads(social_id_raw) if social_id_raw.startswith("[") else [social_id_raw]
-            result = oneup.schedule_image_post(
-                api_key=api_key,
-                category_id=category_id,
-                social_network_ids=social_ids,
-                scheduled_date_time=order.scheduled_at.strftime("%Y-%m-%d %H:%M"),
-                content=order.caption or "",
-                image_urls=image_urls,
-                title=order.title or None,
-            )
-            order.status = "scheduled"
-            order.oneup_response = json.dumps(result)
-            db.session.commit()
-            mailer.notify_status_change(
-                order, f"Scheduled for {order.scheduled_at} via OneUp."
-            )
-            flash("Sent to OneUp and scheduled.", "success")
-        except oneup.OneUpError as e:
-            order.status = "failed"
-            order.oneup_response = str(e)
-            db.session.commit()
-            flash(f"OneUp rejected this post: {e}", "error")
-
+        success, message = publish_via_oneup(order)
+        if success:
+            mailer.notify_status_change(order, f"Scheduled for {order.scheduled_at} via OneUp.")
+        flash(message, "success" if success else "error")
         return redirect(url_for("order_detail", order_id=order.id))
+
+    @app.route("/orders/<int:order_id>/publish-now", methods=["POST"])
+    @boss_required
+    def order_publish_now(order_id):
+        """Quick action from the Calendar popup — schedules straight through
+        OneUp's API using the pub date already set, no form needed."""
+        order = Order.query.get_or_404(order_id)
+        if not order.due_date:
+            flash("This task has no pub date set yet — set one on the Board or Calendar first.", "error")
+            return redirect(url_for("calendar_view"))
+
+        if not order.scheduled_at:
+            order.scheduled_at = datetime.combine(order.due_date, datetime.min.time().replace(hour=12))
+            db.session.commit()
+
+        api_key = get_oneup_api_key()
+        if not api_key:
+            flash("OneUp isn't connected yet — add your API key in Settings first.", "error")
+            return redirect(url_for("calendar_view"))
+
+        success, message = publish_via_oneup(order)
+        if success:
+            mailer.notify_status_change(order, f"Scheduled for {order.scheduled_at} via OneUp.")
+        flash(message, "success" if success else "error")
+        return redirect(url_for("calendar_view"))
 
     @app.route("/orders/<int:order_id>/mark-published", methods=["POST"])
     @boss_required
@@ -588,12 +575,15 @@ def register_routes(app):
     def settings():
         api_key = get_oneup_api_key()
         mapping = {p: Setting.get(f"oneup_social_id_{p}") for p in PLATFORMS}
+        language_mapping = {l: Setting.get(f"oneup_social_id_instagram_{l}") for l in LANGUAGES}
         return render_template(
             "settings.html",
             api_key=api_key,
             category_id=Setting.get("oneup_category_id", ""),
             mapping=mapping,
             platforms=PLATFORMS,
+            languages=LANGUAGES,
+            language_mapping=language_mapping,
         )
 
     @app.route("/settings/save", methods=["POST"])
@@ -603,6 +593,11 @@ def register_routes(app):
         Setting.set("oneup_category_id", request.form.get("category_id", "").strip())
         for p in PLATFORMS:
             Setting.set(f"oneup_social_id_{p}", request.form.get(f"social_id_{p}", "").strip())
+        for l in LANGUAGES:
+            Setting.set(
+                f"oneup_social_id_instagram_{l}",
+                request.form.get(f"social_id_instagram_{l}", "").strip(),
+            )
         flash("Settings saved.", "success")
         return redirect(url_for("settings"))
 
@@ -631,6 +626,53 @@ def register_routes(app):
 
 def get_oneup_api_key():
     return Setting.get("oneup_api_key") or Config.ONEUP_API_KEY_DEFAULT
+
+
+def publish_via_oneup(order):
+    """Schedules `order` through OneUp's API. Returns (success, message).
+    Looks up a per-language account mapping first (e.g. Instagram/English ->
+    a specific IG account), falling back to the plain per-platform mapping."""
+    api_key = get_oneup_api_key()
+    if not api_key:
+        return False, "OneUp isn't connected yet (see Settings)."
+    if not order.platform:
+        return False, "This order has no platform set yet — edit it before scheduling."
+
+    category_id = Setting.get("oneup_category_id")
+    social_id_raw = None
+    if order.language:
+        social_id_raw = Setting.get(f"oneup_social_id_{order.platform}_{order.language}")
+    if not social_id_raw:
+        social_id_raw = Setting.get(f"oneup_social_id_{order.platform}")
+
+    if not category_id or not social_id_raw:
+        who = order.platform.title() + (f" / {order.language}" if order.language else "")
+        return False, f"No OneUp account is mapped for {who} yet. Set it up in Settings first."
+
+    image_urls = [oneup.normalize_drive_link(link) for link in order.drive_link_list]
+    if not image_urls:
+        return False, "This order has no Drive link(s) set yet — add one on the Board first."
+
+    try:
+        social_ids = json.loads(social_id_raw) if social_id_raw.startswith("[") else [social_id_raw]
+        result = oneup.schedule_image_post(
+            api_key=api_key,
+            category_id=category_id,
+            social_network_ids=social_ids,
+            scheduled_date_time=order.scheduled_at.strftime("%Y-%m-%d %H:%M"),
+            content=order.caption or "",
+            image_urls=image_urls,
+            title=order.title or None,
+        )
+        order.status = "scheduled"
+        order.oneup_response = json.dumps(result)
+        db.session.commit()
+        return True, "Sent to OneUp and scheduled."
+    except oneup.OneUpError as e:
+        order.status = "failed"
+        order.oneup_response = str(e)
+        db.session.commit()
+        return False, f"OneUp rejected this post: {e}"
 
 
 app = create_app()
