@@ -1,15 +1,34 @@
 import io
 import json
+import os
+import secrets
+import tempfile
 import zipfile
 from datetime import date, datetime
 from functools import wraps
 
-from flask import Flask, abort, flash, g, redirect, render_template, request, session, url_for
+from flask import (
+    Flask,
+    abort,
+    flash,
+    g,
+    redirect,
+    render_template,
+    request,
+    send_from_directory,
+    session,
+    url_for,
+)
+from werkzeug.utils import secure_filename
 
+import drive
 import language_tracker
 import mailer
 import oneup
 from config import Config
+
+MEDIA_CACHE_DIR = os.path.join(tempfile.gettempdir(), "content_ops_media")
+os.makedirs(MEDIA_CACHE_DIR, exist_ok=True)
 from models import (
     BOARD_STATUSES,
     CONTENT_TYPES,
@@ -166,6 +185,15 @@ def register_routes(app):
                 }
             )
         return {"events": events}
+
+    @app.route("/media/<token>/<filename>")
+    def serve_temp_media(token, filename):
+        """Briefly hosts photos we've just unzipped from a Drive .zip so
+        OneUp's API can fetch them by URL. No login check on purpose —
+        OneUp fetches this anonymously. Token is a random per-publish
+        string, so nothing here is guessable."""
+        folder = os.path.join(MEDIA_CACHE_DIR, secure_filename(token))
+        return send_from_directory(folder, secure_filename(filename))
 
     # -- Orders ------------------------------------------------------------
 
@@ -650,6 +678,7 @@ def register_routes(app):
             platforms=PLATFORMS,
             languages=LANGUAGES,
             language_mapping=language_mapping,
+            google_service_account_json=Setting.get("google_service_account_json") or "",
         )
 
     @app.route("/settings/save", methods=["POST"])
@@ -664,8 +693,32 @@ def register_routes(app):
                     f"oneup_social_id_{p}_{l}",
                     request.form.get(f"social_id_{p}_{l}", "").strip(),
                 )
+        Setting.set(
+            "google_service_account_json",
+            request.form.get("google_service_account_json", "").strip(),
+        )
         flash("Settings saved.", "success")
         return redirect(url_for("settings"))
+
+    @app.route("/settings/drive/test")
+    @boss_required
+    def settings_drive_test():
+        sa_json = Setting.get("google_service_account_json")
+        if not sa_json:
+            return {"error": "No Google service account key saved yet."}, 400
+        try:
+            service = drive.get_service(sa_json)
+            about = service.about().get(fields="user").execute()
+            email = about.get("user", {}).get("emailAddress", "unknown")
+            return {
+                "ok": True,
+                "service_account_email": email,
+                "note": "Share your Drive folders/zips with this exact email address.",
+            }
+        except drive.DriveError as e:
+            return {"error": str(e)}, 400
+        except Exception as e:  # noqa: BLE001
+            return {"error": str(e)}, 502
 
     @app.route("/settings/oneup/accounts")
     @boss_required
@@ -694,6 +747,53 @@ def get_oneup_api_key():
     return Setting.get("oneup_api_key") or Config.ONEUP_API_KEY_DEFAULT
 
 
+def save_temp_media(token, filename, data):
+    folder = os.path.join(MEDIA_CACHE_DIR, token)
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, filename), "wb") as f:
+        f.write(data)
+
+
+def expand_drive_links(order):
+    """Turns each of an order's Drive links into one or more direct image
+    URLs for OneUp. A plain single-image link passes through unchanged
+    (same as always). A link to a .zip gets downloaded and unzipped via the
+    Google service account configured in Settings, and each photo inside
+    gets its own short-lived public URL for OneUp to fetch. If no service
+    account is configured, zip links are just left alone (as plain image
+    links, which will fail against OneUp with a clear enough error)."""
+    sa_json = Setting.get("google_service_account_json")
+    urls = []
+    service = None
+    for link in order.drive_link_list:
+        file_id = drive.extract_file_id(link) if sa_json else None
+        if not sa_json or not file_id:
+            urls.append(oneup.normalize_drive_link(link))
+            continue
+
+        if service is None:
+            service = drive.get_service(sa_json)
+
+        meta = drive.get_file_metadata(service, file_id)
+        if not drive.is_zip(meta):
+            urls.append(oneup.normalize_drive_link(link))
+            continue
+
+        zip_bytes = drive.download_bytes(service, file_id)
+        images = drive.extract_images(zip_bytes)
+        if not images:
+            raise drive.DriveError(f"'{meta.get('name')}' is a zip, but no photos were found inside it.")
+
+        token = secrets.token_urlsafe(16)
+        for fname, data in images:
+            safe_name = secure_filename(fname) or "image.jpg"
+            save_temp_media(token, safe_name, data)
+            # Built by hand (not url_for) so this also works when called
+            # outside an active request/app context.
+            urls.append(f"{Config.BASE_URL.rstrip('/')}/media/{token}/{safe_name}")
+    return urls
+
+
 def publish_via_oneup(order):
     """Schedules `order` through OneUp's API. Returns (success, message).
     Looks up a per-language account mapping first (e.g. Instagram/English ->
@@ -715,7 +815,14 @@ def publish_via_oneup(order):
         who = order.platform.title() + (f" / {order.language}" if order.language else "")
         return False, f"No OneUp account is mapped for {who} yet. Set it up in Settings first."
 
-    image_urls = [oneup.normalize_drive_link(link) for link in order.drive_link_list]
+    try:
+        image_urls = expand_drive_links(order)
+    except drive.DriveError as e:
+        order.status = "failed"
+        order.oneup_response = str(e)
+        db.session.commit()
+        return False, str(e)
+
     if not image_urls:
         return False, "This order has no Drive link(s) set yet — add one on the Board first."
 
