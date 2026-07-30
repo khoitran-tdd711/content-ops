@@ -55,16 +55,22 @@ def normalize_drive_link(url):
 
 
 def list_categories(api_key):
-    r = requests.get(f"{BASE_URL}/listcategory", params={"apiKey": api_key}, timeout=TIMEOUT)
-    r.raise_for_status()
+    try:
+        r = requests.get(f"{BASE_URL}/listcategory", params={"apiKey": api_key}, timeout=TIMEOUT)
+        r.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        raise OneUpError(f"Couldn't reach OneUp: {e}")
     return r.json()
 
 
 def list_social_accounts(api_key):
-    r = requests.get(
-        f"{BASE_URL}/listsocialaccounts", params={"apiKey": api_key}, timeout=TIMEOUT
-    )
-    r.raise_for_status()
+    try:
+        r = requests.get(
+            f"{BASE_URL}/listsocialaccounts", params={"apiKey": api_key}, timeout=TIMEOUT
+        )
+        r.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        raise OneUpError(f"Couldn't reach OneUp: {e}")
     return r.json()
 
 
@@ -96,7 +102,11 @@ def schedule_image_post(
     if title:
         data["title"] = title
 
-    r = requests.post(f"{BASE_URL}/scheduleimagepost", data=data, timeout=TIMEOUT)
+    try:
+        r = requests.post(f"{BASE_URL}/scheduleimagepost", data=data, timeout=TIMEOUT)
+    except requests.exceptions.RequestException as e:
+        raise OneUpError(f"Couldn't reach OneUp (network error): {e}")
+
     try:
         payload = r.json()
     except ValueError:
