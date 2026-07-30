@@ -8,20 +8,40 @@
 <p class="muted">
   Legend:
   <span class="badge" style="background:#9CA3AF">Ordered</span>
-  <span class="badge" style="background:#F59E0B">Submitted</span>
-  <span class="badge" style="background:#EF4444">Needs changes</span>
-  <span class="badge" style="background:#3B82F6">Approved</span>
-  <span class="badge" style="background:#10B981">Scheduled</span>
-  <span class="badge" style="background:#8B5CF6">Sent to OneUp (manual)</span>
+  <span class="badge" style="background:#F59E0B">In Production</span>
+  <span class="badge" style="background:#3B82F6">Ready</span>
+  <span class="badge" style="background:#8B5CF6">Scheduled</span>
+  <span class="badge" style="background:#10B981">Published</span>
 </p>
+<p class="muted">Drag an item to a new day to reschedule it. Click it to open the order.</p>
+
+<div style="margin:10px 0 16px;display:flex;gap:18px;align-items:center">
+  <label style="display:flex;gap:6px;align-items:center;margin:0;font-weight:500">
+    <input type="checkbox" class="cal-filter" value="planned" checked style="width:auto;margin:0"> Planned
+  </label>
+  <label style="display:flex;gap:6px;align-items:center;margin:0;font-weight:500">
+    <input type="checkbox" class="cal-filter" value="scheduled" checked style="width:auto;margin:0"> Scheduled
+  </label>
+  <label style="display:flex;gap:6px;align-items:center;margin:0;font-weight:500">
+    <input type="checkbox" class="cal-filter" value="published" checked style="width:auto;margin:0"> Published
+  </label>
+</div>
+
 <div id="calendar"></div>
 
 <script>
 document.addEventListener('DOMContentLoaded', function () {
   const calendarEl = document.getElementById('calendar');
+  const filterBoxes = document.querySelectorAll('.cal-filter');
+
+  function activeBuckets() {
+    return Array.from(filterBoxes).filter(cb => cb.checked).map(cb => cb.value);
+  }
+
   const calendar = new FullCalendar.Calendar(calendarEl, {
     initialView: 'dayGridMonth',
     height: 'auto',
+    editable: true,
     headerToolbar: {
       left: 'prev,next today',
       center: 'title',
@@ -30,7 +50,10 @@ document.addEventListener('DOMContentLoaded', function () {
     events: function (info, successCallback, failureCallback) {
       fetch("{{ url_for('orders_json') }}")
         .then(r => r.json())
-        .then(data => successCallback(data.events))
+        .then(data => {
+          const active = activeBuckets();
+          successCallback(data.events.filter(e => active.includes(e.bucket)));
+        })
         .catch(failureCallback);
     },
     eventClick: function (info) {
@@ -38,8 +61,21 @@ document.addEventListener('DOMContentLoaded', function () {
       if (info.event.url) {
         window.location.href = info.event.url;
       }
+    },
+    eventDrop: function (info) {
+      const newDate = info.event.startStr.slice(0, 10);
+      fetch(`/orders/${info.event.id}/set-date`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'due_date=' + newDate
+      }).catch(function () { info.revert(); });
     }
   });
+
+  filterBoxes.forEach(function (cb) {
+    cb.addEventListener('change', function () { calendar.refetchEvents(); });
+  });
+
   calendar.render();
 });
 </script>
