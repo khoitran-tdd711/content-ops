@@ -69,6 +69,23 @@
     </table>
     </div>
 
+    <div class="section-title" style="margin-top:20px">
+      Google Drive (for .zip files)
+      <button type="button" class="btn secondary" id="btn-test-drive" style="margin-left:8px;padding:2px 10px">Test connection</button>
+    </div>
+    <p class="muted">
+      This lets the app open a Drive .zip and send every photo inside it straight to OneUp,
+      instead of you having to paste individual photo links. It needs a Google service account
+      key (a JSON file from Google Cloud) — create one, then paste its full contents below.
+      After saving, click "Test connection" to see the service account's email address, then
+      share your Drive folders with that exact email (same as sharing a folder with a coworker).
+      Leave this blank if you'd rather keep pasting individual photo links — that still works.
+    </p>
+    <div id="drive-test-result" class="muted" style="margin-bottom:10px"></div>
+    <label>Google service account key (paste the whole JSON file)</label>
+    <textarea name="google_service_account_json" rows="6"
+              placeholder='{"type": "service_account", "project_id": "...", ...}'>{{ google_service_account_json or '' }}</textarea>
+
     <div style="margin-top:18px">
       <button class="btn" type="submit">Save settings</button>
     </div>
@@ -90,6 +107,9 @@ document.getElementById('btn-fetch-categories').addEventListener('click', functi
 });
 document.getElementById('btn-fetch-accounts').addEventListener('click', function () {
   fetchAndShow("{{ url_for('settings_oneup_accounts') }}", 'accounts-result');
+});
+document.getElementById('btn-test-drive').addEventListener('click', function () {
+  fetchAndShow("{{ url_for('settings_drive_test') }}", 'drive-test-result');
 });
 </script>
 {% endblock %}
