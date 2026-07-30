@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Import language tracker{% endblock %}
+{% block content %}
+<div class="card" style="max-width:560px">
+  <h2 style="margin-top:0">Import from Language Tracker</h2>
+  <p class="muted">
+    Upload the export of your "Language Coverage &amp; Publish Tracker" Google Sheet
+    (File &gt; Download &gt; Web page (.html, zipped) — you can upload that .zip directly,
+    or just the Tracker.html file inside it).
+  </p>
+  <p class="muted">
+    Every project/language marked "Ready" becomes an entry here — already published ones
+    are marked done, the rest land as "Approved" so you can schedule them. Re-uploading
+    later just updates anything that changed, it won't create duplicates.
+  </p>
+  <form method="post" enctype="multipart/form-data">
+    <label>Tracker file (.zip or .html)</label>
+    <input type="file" name="tracker_file" accept=".zip,.html" required>
+    <div style="margin-top:18px">
+      <button class="btn" type="submit">Import</button>
+    </div>
+  </form>
+</div>
+{% endblock %}
