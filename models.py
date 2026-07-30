@@ -48,7 +48,7 @@ STATUS_COLORS = {
     "submitted": "#6F8EFF",
     "to_modify": "#DC4C4C",
     "in_production": "#6F8EFF",
-    "ready": "#8FF0B5",
+    "ready": "#F5B942",
     "scheduled": "#134440",
     "sent_manually": "#134440",
     "failed": "#DC4C4C",
