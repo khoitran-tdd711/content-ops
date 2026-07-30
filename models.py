@@ -7,6 +7,10 @@ db = SQLAlchemy()
 
 PLATFORMS = ["instagram", "linkedin", "facebook", "tiktok"]
 CONTENT_TYPES = ["carousel", "single_image", "video", "reel", "story"]
+LANGUAGES = [
+    "English", "Spanish", "Italian", "French", "Dutch",
+    "German", "Polish", "Portuguese", "Romanian", "Greek",
+]
 
 # Status flow:
 # ordered -> submitted -> (approved | to_modify)
@@ -20,6 +24,7 @@ STATUSES = [
     "scheduled",
     "sent_manually",
     "failed",
+    "already_published",
 ]
 
 STATUS_LABELS = {
@@ -30,6 +35,7 @@ STATUS_LABELS = {
     "scheduled": "Scheduled (auto-publish)",
     "sent_manually": "Sent to OneUp (manual upload)",
     "failed": "Publish failed",
+    "already_published": "Already published (imported)",
 }
 
 STATUS_COLORS = {
@@ -40,6 +46,7 @@ STATUS_COLORS = {
     "scheduled": "#10B981",
     "sent_manually": "#8B5CF6",
     "failed": "#DC2626",
+    "already_published": "#0D9488",
 }
 
 
@@ -88,7 +95,8 @@ class Setting(db.Model):
 
 class Order(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    platform = db.Column(db.String(30), nullable=False)
+    platform = db.Column(db.String(30), nullable=True)  # nullable: bulk-imported rows may not have one yet
+    language = db.Column(db.String(30))  # optional, e.g. for language-tracker imports
     content_type = db.Column(db.String(30), default="carousel")
     quantity = db.Column(db.Integer, default=1)
     title = db.Column(db.String(200))
