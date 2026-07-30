@@ -244,14 +244,21 @@ def register_routes(app):
                 flash("Couldn't find a project table in that file.", "error")
                 return redirect(url_for("order_import_tracker"))
 
+           # One bulk lookup instead of a query per project/language (was
+            # ~1,300 round-trips for a 650-row sheet -> request timeouts).
+            titles = [p["project"] for p in projects]
+            existing_rows = Order.query.filter(Order.title.in_(titles)).all()
+            existing_map = {(o.title, o.language): o for o in existing_rows}
+
             created, updated, skipped = 0, 0, 0
+            new_orders = []
             for proj in projects:
                 due = proj["folder_created"] or date.today()
                 for lang, info in proj["languages"].items():
                     if not info["ready"]:
                         continue
                     status = "already_published" if info["published"] else "approved"
-                    existing = Order.query.filter_by(title=proj["project"], language=lang).first()
+                    existing = existing_map.get((proj["project"], lang))
                     if existing:
                         if existing.status != status:
                             existing.status = status
@@ -269,9 +276,10 @@ def register_routes(app):
                         created_by_id=g.user.id,
                         status=status,
                     )
-                    db.session.add(order)
+                    new_orders.append(order)
                     created += 1
 
+            db.session.bulk_save_objects(new_orders)
             db.session.commit()
             flash(
                 f"Import done: {created} added, {updated} updated, {skipped} already up to date.",
