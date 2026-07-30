@@ -3,10 +3,42 @@
 {% block content %}
 <h2 style="margin-top:0">Board</h2>
 <p class="muted">
-  Every carousel/post produced or ordered lives here. Setting a pub date (and a platform,
-  if it doesn't have one) is what makes it show up on the Calendar. Want the same content
-  on another platform? Use "Add existing carousel" again with the new platform.
+  Every carousel/post produced or ordered lives here. This is the back-end tracker — set the
+  pub date on the Calendar (drag an item, or use "New order") once you're ready to schedule it.
 </p>
+
+<form method="get" style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:16px">
+  <div style="flex:1;min-width:220px">
+    <label style="margin:0 0 4px">Search</label>
+    <input type="text" name="q" value="{{ filters.q }}" placeholder="Carousel name…" style="margin:0">
+  </div>
+  <div>
+    <label style="margin:0 0 4px">Language</label>
+    <select name="language" style="margin:0">
+      <option value="">All</option>
+      {% for l in languages %}<option value="{{ l }}" {{ 'selected' if filters.language == l }}>{{ l }}</option>{% endfor %}
+    </select>
+  </div>
+  <div>
+    <label style="margin:0 0 4px">Platform</label>
+    <select name="platform" style="margin:0">
+      <option value="">All</option>
+      {% for p in platforms %}<option value="{{ p }}" {{ 'selected' if filters.platform == p }}>{{ p|title }}</option>{% endfor %}
+    </select>
+  </div>
+  <div>
+    <label style="margin:0 0 4px">Status</label>
+    <select name="status" style="margin:0">
+      <option value="">All</option>
+      {% for s in board_statuses %}<option value="{{ s }}" {{ 'selected' if filters.status == s }}>{{ STATUS_LABELS[s] }}</option>{% endfor %}
+    </select>
+  </div>
+  <div style="display:flex;gap:8px">
+    <button class="btn" type="submit">Filter</button>
+    <a class="btn secondary" href="{{ url_for('board_view') }}">Clear</a>
+  </div>
+</form>
+
 <div class="card" style="overflow-x:auto">
 <table>
   <thead>
@@ -18,7 +50,7 @@
       <th>Status</th>
       <th>Note</th>
       <th>Drive link</th>
-      <th>Pub date</th>
+      <th>Date ordered</th>
     </tr>
   </thead>
   <tbody>
@@ -28,29 +60,38 @@
       <td>{{ o.platform|title if o.platform else '—' }}</td>
       <td>{{ o.language or '—' }}</td>
       <td>{{ o.producer.name if o.producer else '—' }}</td>
-      <td><span class="badge" style="background:{{ o.status_color }}">{{ o.status_label }}</span></td>
-      <td>{{ o.feedback_note or '' }}</td>
       <td>
-        {% if o.drive_link_list %}<a href="{{ o.drive_link_list[0] }}" target="_blank">Link</a>{% else %}—{% endif %}
-      </td>
-      <td>
+        <span class="badge" style="background:{{ o.status_color }}">{{ o.status_label }}</span>
         {% if current_user.is_boss %}
-        <form method="post" action="{{ url_for('order_set_date', order_id=o.id) }}"
-              style="display:flex;gap:4px;align-items:center;margin:0">
-          <input type="date" name="due_date" value="{{ o.due_date.isoformat() if o.due_date else '' }}"
-                 style="width:130px;padding:4px 6px;margin:0">
-          {% if not o.platform %}
-          <select name="platform" style="width:100px;padding:4px 6px;margin:0">
-            <option value="">platform…</option>
-            {% for p in platforms %}<option value="{{ p }}">{{ p|title }}</option>{% endfor %}
+        <form method="post" action="{{ url_for('order_set_status', order_id=o.id) }}" style="margin-top:4px">
+          <select name="status" onchange="this.form.submit()" style="width:150px;padding:3px 6px;font-size:12px;margin:0">
+            {% if o.status not in board_statuses %}
+              <option value="{{ o.status }}" selected>{{ o.status_label }} (current)</option>
+            {% endif %}
+            {% for s in board_statuses %}
+              <option value="{{ s }}" {{ 'selected' if o.status == s }}>{{ STATUS_LABELS[s] }}</option>
+            {% endfor %}
           </select>
-          {% endif %}
-          <button class="btn" type="submit" style="padding:4px 10px">Save</button>
         </form>
-        {% else %}
-          {{ o.due_date if o.due_date else '—' }}
         {% endif %}
       </td>
+      <td>{{ o.feedback_note or '' }}</td>
+      <td>
+        {% if current_user.is_boss %}
+        <form method="post" action="{{ url_for('order_set_drive_link', order_id=o.id) }}"
+              style="display:flex;gap:4px;align-items:center;margin:0">
+          <input type="text" name="drive_links" value="{{ o.drive_links or '' }}" placeholder="Drive link"
+                 style="width:150px;padding:4px 6px;margin:0">
+          <button class="btn" type="submit" style="padding:4px 10px">Save</button>
+        </form>
+        {% if o.drive_link_list %}
+          <div style="margin-top:4px"><a href="{{ o.drive_link_list[0] }}" target="_blank">Open</a></div>
+        {% endif %}
+        {% else %}
+          {% if o.drive_link_list %}<a href="{{ o.drive_link_list[0] }}" target="_blank">Link</a>{% else %}—{% endif %}
+        {% endif %}
+      </td>
+      <td>{{ o.date_ordered.strftime('%b %d, %Y') if o.date_ordered else '—' }}</td>
     </tr>
     {% endfor %}
   </tbody>
