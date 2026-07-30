@@ -23,7 +23,7 @@ TIMEOUT = 20
 # before it responds, so it needs much longer than a simple lookup call —
 # especially for multi-photo zips. Retry once on a timeout/network blip
 # before giving up, since these are often transient.
-SCHEDULE_TIMEOUT = 90
+SCHEDULE_TIMEOUT = 45
 SCHEDULE_RETRIES = 1
 
 DRIVE_FILE_ID_PATTERNS = [
