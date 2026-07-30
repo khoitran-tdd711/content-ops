@@ -1,13 +1,16 @@
+import io
 import json
-from datetime import datetime
+import zipfile
+from datetime import date, datetime
 from functools import wraps
 
 from flask import Flask, abort, flash, g, redirect, render_template, request, session, url_for
 
+import language_tracker
 import mailer
 import oneup
 from config import Config
-from models import CONTENT_TYPES, PLATFORMS, STATUS_LABELS, Order, Setting, User, db
+from models import CONTENT_TYPES, LANGUAGES, PLATFORMS, STATUS_LABELS, Order, Setting, User, db
 
 
 def create_app():
@@ -124,11 +127,18 @@ def register_routes(app):
         orders = Order.query.all()
         events = []
         for o in orders:
+            label_bits = [f"{o.quantity}x {o.content_type}"]
+            if o.platform:
+                label_bits.append(o.platform.title())
+            if o.language:
+                label_bits.append(o.language)
+            title = " • ".join(label_bits)
+            if o.producer:
+                title += f" → {o.producer.name}"
             events.append(
                 {
                     "id": o.id,
-                    "title": f"{o.quantity}x {o.content_type} • {o.platform.title()}"
-                    f"{' → ' + o.producer.name if o.producer else ''}",
+                    "title": title,
                     "start": o.due_date.isoformat(),
                     "color": o.status_color,
                     "url": url_for("order_detail", order_id=o.id),
@@ -162,6 +172,114 @@ def register_routes(app):
         return render_template(
             "order_new.html", producers=producers, platforms=PLATFORMS, content_types=CONTENT_TYPES
         )
+
+    @app.route("/orders/import", methods=["GET", "POST"])
+    @boss_required
+    def order_import():
+        """Add a carousel/post that was already produced (and maybe already
+        published) outside this tool, so it shows up on the calendar too."""
+        producers = User.query.filter_by(role="producer").order_by(User.name).all()
+        if request.method == "POST":
+            already_published = request.form.get("already_published") == "yes"
+            producer_id = request.form.get("producer_id") or None
+            language = request.form.get("language") or None
+            platform = request.form.get("platform") or None
+            order = Order(
+                platform=platform,
+                language=language,
+                content_type=request.form.get("content_type", "carousel"),
+                quantity=int(request.form.get("quantity", 1) or 1),
+                title=request.form.get("title", "").strip(),
+                caption=request.form.get("caption", "").strip(),
+                due_date=datetime.strptime(request.form["due_date"], "%Y-%m-%d").date(),
+                producer_id=int(producer_id) if producer_id else None,
+                created_by_id=g.user.id,
+                drive_links=request.form.get("drive_links", "").strip(),
+                status="already_published" if already_published else "approved",
+            )
+            db.session.add(order)
+            db.session.commit()
+            flash("Existing carousel added.", "success")
+            return redirect(url_for("order_detail", order_id=order.id))
+        return render_template(
+            "order_import.html",
+            producers=producers,
+            platforms=PLATFORMS,
+            content_types=CONTENT_TYPES,
+            languages=LANGUAGES,
+        )
+
+    @app.route("/orders/import-tracker", methods=["GET", "POST"])
+    @boss_required
+    def order_import_tracker():
+        """Bulk-import from the Language Coverage & Publish Tracker sheet
+        export (upload the .zip from Google Sheets' Download > Web page, or
+        just the Tracker.html file directly)."""
+        if request.method == "POST":
+            f = request.files.get("tracker_file")
+            if not f or not f.filename:
+                flash("Choose a file first.", "error")
+                return redirect(url_for("order_import_tracker"))
+
+            raw = f.read()
+            html_content = None
+            filename = f.filename.lower()
+
+            if filename.endswith(".zip") or zipfile.is_zipfile(io.BytesIO(raw)):
+                with zipfile.ZipFile(io.BytesIO(raw)) as zf:
+                    candidates = [n for n in zf.namelist() if n.lower().endswith(".html")]
+                    # Prefer a file literally called Tracker.html; else take the biggest html.
+                    tracker_name = next((n for n in candidates if "tracker" in n.lower()), None)
+                    if not tracker_name and candidates:
+                        tracker_name = max(candidates, key=lambda n: zf.getinfo(n).file_size)
+                    if not tracker_name:
+                        flash("No .html file found inside that zip.", "error")
+                        return redirect(url_for("order_import_tracker"))
+                    html_content = zf.read(tracker_name).decode("utf-8", errors="ignore")
+            else:
+                html_content = raw.decode("utf-8", errors="ignore")
+
+            projects = language_tracker.parse_tracker_html(html_content)
+            if not projects:
+                flash("Couldn't find a project table in that file.", "error")
+                return redirect(url_for("order_import_tracker"))
+
+            created, updated, skipped = 0, 0, 0
+            for proj in projects:
+                due = proj["folder_created"] or date.today()
+                for lang, info in proj["languages"].items():
+                    if not info["ready"]:
+                        continue
+                    status = "already_published" if info["published"] else "approved"
+                    existing = Order.query.filter_by(title=proj["project"], language=lang).first()
+                    if existing:
+                        if existing.status != status:
+                            existing.status = status
+                            updated += 1
+                        else:
+                            skipped += 1
+                        continue
+                    order = Order(
+                        platform=None,
+                        language=lang,
+                        content_type="carousel",
+                        quantity=1,
+                        title=proj["project"],
+                        due_date=due,
+                        created_by_id=g.user.id,
+                        status=status,
+                    )
+                    db.session.add(order)
+                    created += 1
+
+            db.session.commit()
+            flash(
+                f"Import done: {created} added, {updated} updated, {skipped} already up to date.",
+                "success",
+            )
+            return redirect(url_for("calendar_view"))
+
+        return render_template("order_import_tracker.html")
 
     @app.route("/orders/<int:order_id>")
     @login_required
@@ -215,6 +333,8 @@ def register_routes(app):
         order = Order.query.get_or_404(order_id)
         scheduled_at_str = request.form.get("scheduled_at")  # 'YYYY-MM-DDTHH:MM' from <input type=datetime-local>
         order.scheduled_at = datetime.strptime(scheduled_at_str, "%Y-%m-%dT%H:%M")
+        if not order.platform and request.form.get("platform"):
+            order.platform = request.form.get("platform")
 
         api_key = get_oneup_api_key()
         if not api_key:
@@ -226,6 +346,10 @@ def register_routes(app):
                 "open OneUp and upload the media manually.",
                 "warning",
             )
+            return redirect(url_for("order_detail", order_id=order.id))
+
+        if not order.platform:
+            flash("This order has no platform set yet — edit it before scheduling.", "error")
             return redirect(url_for("order_detail", order_id=order.id))
 
         category_id = Setting.get("oneup_category_id")
