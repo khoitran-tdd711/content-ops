@@ -44,15 +44,31 @@ STATUS_LABELS = {
 }
 
 STATUS_COLORS = {
-    "ordered": "#9CA3AF",
-    "submitted": "#F59E0B",
-    "to_modify": "#EF4444",
-    "in_production": "#F59E0B",
-    "ready": "#3B82F6",
-    "scheduled": "#8B5CF6",
-    "sent_manually": "#8B5CF6",
-    "failed": "#DC2626",
-    "published": "#10B981",
+    "ordered": "#2E6F68",
+    "submitted": "#6F8EFF",
+    "to_modify": "#DC4C4C",
+    "in_production": "#6F8EFF",
+    "ready": "#8FF0B5",
+    "scheduled": "#134440",
+    "sent_manually": "#134440",
+    "failed": "#DC4C4C",
+    "published": "#3FD27E",
+}
+
+# Text color to pair with each status badge/pill above — light-green
+# backgrounds (ready/published) need dark Foundation text for contrast,
+# per Akka's "Foundation on Highlight" pairing rule; everything else is
+# dark enough for white text.
+STATUS_TEXT_COLORS = {
+    "ordered": "#FFFFFF",
+    "submitted": "#FFFFFF",
+    "to_modify": "#FFFFFF",
+    "in_production": "#FFFFFF",
+    "ready": "#0D302D",
+    "scheduled": "#FFFFFF",
+    "sent_manually": "#FFFFFF",
+    "failed": "#FFFFFF",
+    "published": "#0D302D",
 }
 
 # The statuses a boss can pick directly from the Board's status dropdown.
@@ -138,6 +154,10 @@ class Order(db.Model):
     @property
     def status_color(self):
         return STATUS_COLORS.get(self.status, "#6B7280")
+
+    @property
+    def status_text_color(self):
+        return STATUS_TEXT_COLORS.get(self.status, "#FFFFFF")
 
     @property
     def drive_link_list(self):
