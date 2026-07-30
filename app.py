@@ -10,7 +10,17 @@ import language_tracker
 import mailer
 import oneup
 from config import Config
-from models import CONTENT_TYPES, LANGUAGES, PLATFORMS, STATUS_LABELS, Order, Setting, User, db
+from models import (
+    BOARD_STATUSES,
+    CONTENT_TYPES,
+    LANGUAGES,
+    PLATFORMS,
+    STATUS_LABELS,
+    Order,
+    Setting,
+    User,
+    db,
+)
 
 
 def create_app():
@@ -137,6 +147,12 @@ def register_routes(app):
             title = " • ".join(label_bits)
             if o.producer:
                 title += f" → {o.producer.name}"
+            if o.status == "published":
+                bucket = "published"
+            elif o.status in ("scheduled", "sent_manually"):
+                bucket = "scheduled"
+            else:
+                bucket = "planned"
             events.append(
                 {
                     "id": o.id,
@@ -144,6 +160,7 @@ def register_routes(app):
                     "start": o.due_date.isoformat(),
                     "color": o.status_color,
                     "url": url_for("order_detail", order_id=o.id),
+                    "bucket": bucket,
                 }
             )
         return {"events": events}
@@ -162,6 +179,7 @@ def register_routes(app):
                 title=request.form.get("title", "").strip(),
                 caption=request.form.get("caption", "").strip(),
                 due_date=datetime.strptime(request.form["due_date"], "%Y-%m-%d").date(),
+                date_ordered=date.today(),
                 producer_id=int(request.form["producer_id"]),
                 created_by_id=g.user.id,
                 status="ordered",
@@ -185,7 +203,7 @@ def register_routes(app):
             already_published = request.form.get("already_published") == "yes"
             producer_id = request.form.get("producer_id") or None
             language = request.form.get("language") or None
-            platform = request.form.get("platform") or None
+            platform = request.form.get("platform") or "instagram"
             order = Order(
                 platform=platform,
                 language=language,
@@ -194,10 +212,11 @@ def register_routes(app):
                 title=request.form.get("title", "").strip(),
                 caption=request.form.get("caption", "").strip(),
                 due_date=datetime.strptime(request.form["due_date"], "%Y-%m-%d").date(),
+                date_ordered=date.today(),
                 producer_id=int(producer_id) if producer_id else None,
                 created_by_id=g.user.id,
                 drive_links=request.form.get("drive_links", "").strip(),
-                status="already_published" if already_published else "approved",
+                status="published" if already_published else "ready",
             )
             db.session.add(order)
             db.session.commit()
@@ -258,22 +277,29 @@ def register_routes(app):
                 for lang, info in proj["languages"].items():
                     if not info["ready"]:
                         continue
-                    status = "already_published" if info["published"] else "approved"
+                    status = "published" if info["published"] else "ready"
                     existing = existing_map.get((proj["project"], lang))
                     if existing:
+                        changed = False
                         if existing.status != status:
                             existing.status = status
+                            changed = True
+                        if not existing.date_ordered and proj["folder_created"]:
+                            existing.date_ordered = proj["folder_created"]
+                            changed = True
+                        if changed:
                             updated += 1
                         else:
                             skipped += 1
                         continue
                     order = Order(
-                        platform=None,
+                        platform="instagram",
                         language=lang,
                         content_type="carousel",
                         quantity=1,
                         title=proj["project"],
-                        due_date=None,  # no pub date yet — set it later on the Board
+                        due_date=None,  # no pub date yet — set it later on the Calendar
+                        date_ordered=proj["folder_created"],
                         created_by_id=g.user.id,
                         status=status,
                     )
@@ -293,12 +319,33 @@ def register_routes(app):
     @app.route("/board")
     @login_required
     def board_view():
-        """Flat tracker of every order/carousel — the source of truth. Setting
-        a pub date here is what makes an item show up on the Calendar."""
-        orders = Order.query.order_by(
-            Order.due_date.is_(None).desc(), Order.due_date, Order.title
+        """Flat tracker of every order/carousel — the source of truth."""
+        q = request.args.get("q", "").strip()
+        language = request.args.get("language", "").strip()
+        platform = request.args.get("platform", "").strip()
+        status = request.args.get("status", "").strip()
+
+        query = Order.query
+        if q:
+            query = query.filter(Order.title.ilike(f"%{q}%"))
+        if language:
+            query = query.filter(Order.language == language)
+        if platform:
+            query = query.filter(Order.platform == platform)
+        if status:
+            query = query.filter(Order.status == status)
+
+        orders = query.order_by(
+            Order.date_ordered.is_(None), Order.date_ordered.desc(), Order.title
         ).all()
-        return render_template("board.html", orders=orders, platforms=PLATFORMS)
+        return render_template(
+            "board.html",
+            orders=orders,
+            platforms=PLATFORMS,
+            languages=LANGUAGES,
+            board_statuses=BOARD_STATUSES,
+            filters={"q": q, "language": language, "platform": platform, "status": status},
+        )
 
     @app.route("/orders/<int:order_id>/set-date", methods=["POST"])
     @boss_required
@@ -311,6 +358,28 @@ def register_routes(app):
             order.platform = platform
         db.session.commit()
         flash("Pub date updated.", "success")
+        return redirect(request.referrer or url_for("board_view"))
+
+    @app.route("/orders/<int:order_id>/set-status", methods=["POST"])
+    @boss_required
+    def order_set_status(order_id):
+        order = Order.query.get_or_404(order_id)
+        new_status = request.form.get("status")
+        if new_status in BOARD_STATUSES:
+            order.status = new_status
+            db.session.commit()
+            flash("Status updated.", "success")
+        else:
+            flash("Not a valid status.", "error")
+        return redirect(request.referrer or url_for("board_view"))
+
+    @app.route("/orders/<int:order_id>/set-drive-link", methods=["POST"])
+    @boss_required
+    def order_set_drive_link(order_id):
+        order = Order.query.get_or_404(order_id)
+        order.drive_links = request.form.get("drive_links", "").strip()
+        db.session.commit()
+        flash("Drive link updated.", "success")
         return redirect(request.referrer or url_for("board_view"))
 
     @app.route("/orders/<int:order_id>")
@@ -339,7 +408,7 @@ def register_routes(app):
     @boss_required
     def order_approve(order_id):
         order = Order.query.get_or_404(order_id)
-        order.status = "approved"
+        order.status = "ready"
         order.feedback_note = ""
         db.session.commit()
         mailer.notify_status_change(order, "Your submission was approved. It's ready to be scheduled.")
@@ -430,7 +499,7 @@ def register_routes(app):
     def order_mark_published(order_id):
         """Used to close out the loop after a manual OneUp upload."""
         order = Order.query.get_or_404(order_id)
-        order.status = "scheduled"
+        order.status = "published"
         db.session.commit()
         flash("Marked as published.", "success")
         return redirect(url_for("order_detail", order_id=order.id))
