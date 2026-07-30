@@ -65,7 +65,7 @@
 {% endif %}
 
 {# --- Boss: schedule / publish --- #}
-{% if current_user.is_boss and order.status == 'approved' %}
+{% if current_user.is_boss and order.status == 'ready' %}
 <div class="card">
   <div class="section-title">Schedule &amp; publish</div>
   {% if oneup_configured %}
@@ -112,7 +112,7 @@
 </div>
 {% endif %}
 
-{% if order.status == 'already_published' %}
+{% if order.status == 'published' %}
 <div class="card">
   <div class="section-title">Already published</div>
   <p class="muted">Imported as a record of existing content — no action needed here.</p>
