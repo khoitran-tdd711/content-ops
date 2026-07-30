@@ -417,6 +417,51 @@ def register_routes(app):
         flash("Platform updated.", "success")
         return redirect(request.referrer or url_for("board_view"))
 
+    @app.route("/orders/<int:order_id>/set-language", methods=["POST"])
+    @boss_required
+    def order_set_language(order_id):
+        order = Order.query.get_or_404(order_id)
+        order.language = request.form.get("language") or None
+        db.session.commit()
+        flash("Language updated.", "success")
+        return redirect(request.referrer or url_for("board_view"))
+
+    @app.route("/orders/<int:order_id>/set-note", methods=["POST"])
+    @boss_required
+    def order_set_note(order_id):
+        order = Order.query.get_or_404(order_id)
+        order.feedback_note = request.form.get("feedback_note", "").strip()
+        db.session.commit()
+        flash("Note updated.", "success")
+        return redirect(request.referrer or url_for("board_view"))
+
+    @app.route("/orders/bulk-delete", methods=["POST"])
+    @boss_required
+    def orders_bulk_delete():
+        ids = [i for i in request.form.getlist("order_ids") if i]
+        if ids:
+            Order.query.filter(Order.id.in_(ids)).delete(synchronize_session=False)
+            db.session.commit()
+            flash(f"Deleted {len(ids)} task(s).", "success")
+        else:
+            flash("No tasks were selected.", "error")
+        return redirect(request.referrer or url_for("board_view"))
+
+    @app.route("/orders/bulk-status", methods=["POST"])
+    @boss_required
+    def orders_bulk_status():
+        ids = [i for i in request.form.getlist("order_ids") if i]
+        new_status = request.form.get("status")
+        if ids and new_status in BOARD_STATUSES:
+            Order.query.filter(Order.id.in_(ids)).update(
+                {"status": new_status}, synchronize_session=False
+            )
+            db.session.commit()
+            flash(f"Updated status for {len(ids)} task(s).", "success")
+        else:
+            flash("Pick at least one task and a valid status.", "error")
+        return redirect(request.referrer or url_for("board_view"))
+
     @app.route("/orders/<int:order_id>/duplicate", methods=["POST"])
     @boss_required
     def order_duplicate(order_id):
