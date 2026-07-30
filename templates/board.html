@@ -155,12 +155,13 @@
           {% if current_user.is_boss %}
           <form method="post" action="{{ url_for('order_set_date', order_id=o.id) }}"
                 style="display:flex;gap:4px;align-items:center;margin:0">
-            <input type="date" name="due_date" value="{{ o.due_date.isoformat() if o.due_date else '' }}"
-                   style="width:130px;padding:4px 6px;margin:0">
+            <input type="datetime-local" name="scheduled_at"
+                   value="{{ o.scheduled_at.strftime('%Y-%m-%dT%H:%M') if o.scheduled_at else '' }}"
+                   style="width:180px;padding:4px 6px;margin:0">
             <button class="btn" type="submit" style="padding:4px 10px">Save</button>
           </form>
           {% else %}
-            {{ o.due_date if o.due_date else '—' }}
+            {{ o.scheduled_at.strftime('%b %d, %Y %H:%M') if o.scheduled_at else (o.due_date if o.due_date else '—') }}
           {% endif %}
         </td>
         <td>{{ o.date_ordered.strftime('%b %d, %Y') if o.date_ordered else '—' }}</td>
@@ -214,8 +215,8 @@
       <label>Quantity</label>
       <input type="number" name="quantity" min="1" value="1" required>
 
-      <label>Pub date (optional — leave blank if not scheduled yet)</label>
-      <input type="date" name="due_date">
+      <label>Pub date &amp; time (optional — leave blank if not scheduled yet)</label>
+      <input type="datetime-local" name="scheduled_at">
 
       <label>POC (optional)</label>
       <select name="producer_id">
