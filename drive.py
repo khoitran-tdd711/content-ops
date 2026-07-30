@@ -54,7 +54,11 @@ def get_service(service_account_json):
 
 def get_file_metadata(service, file_id):
     try:
-        return service.files().get(fileId=file_id, fields="id,name,mimeType,size").execute()
+        return (
+            service.files()
+            .get(fileId=file_id, fields="id,name,mimeType,size", supportsAllDrives=True)
+            .execute()
+        )
     except Exception as e:  # noqa: BLE001
         raise DriveError(
             f"Couldn't read that Drive file (id {file_id}). Make sure it's shared with the "
@@ -69,7 +73,7 @@ def is_zip(meta):
 
 
 def download_bytes(service, file_id, max_bytes=MAX_ZIP_BYTES):
-    request = service.files().get_media(fileId=file_id)
+    request = service.files().get_media(fileId=file_id, supportsAllDrives=True)
     buf = io.BytesIO()
     downloader = MediaIoBaseDownload(buf, request)
     done = False
