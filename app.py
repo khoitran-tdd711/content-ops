@@ -248,6 +248,7 @@ def register_routes(app):
                     "textColor": o.status_text_color,
                     "url": url_for("order_detail", order_id=o.id),
                     "bucket": bucket,
+                    "platform": o.platform,
                     "caption": o.caption or "",
                     "scheduledAt": o.scheduled_at.strftime("%Y-%m-%dT%H:%M") if o.scheduled_at else None,
                     "projectTitle": o.title or "(untitled)",
