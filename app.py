@@ -319,7 +319,7 @@ def register_routes(app):
                 producer_id=int(producer_id) if producer_id else None,
                 created_by_id=g.user.id,
                 drive_links=request.form.get("drive_links", "").strip(),
-                status="published" if already_published else "ready",
+                status="published" if already_published else "ordered",
             )
             db.session.add(order)
             db.session.commit()
