@@ -521,12 +521,24 @@ def register_routes(app):
         project folder is a .zip per language: '<Title>.zip' for the base
         language and '<Title>-<code>.zip' for the rest (see
         drive.LANGUAGE_ZIP_SUFFIX). Never overwrites a Drive link that's
-        already set — only fills tasks that are still blank. Scoped to one
-        status at a time (picked on the Board), or every status if left
-        blank/"all"."""
+        already set — only fills tasks that are still blank. Scoped to
+        exactly the tasks selected on the Board (order_ids, from the bulk
+        bar), or to one status at a time, or every status if left
+        blank/"all" — an explicit order_ids selection always wins over the
+        status filter, since picking specific rows is a stronger signal
+        than "whatever happens to be in this status" and is the whole
+        point of scanning just a couple of new tasks instead of everything."""
         sa_json = Setting.get("google_service_account_json")
         if not sa_json:
             return {"error": "Set up the Google service account in Settings first."}, 400
+
+        order_ids_raw = request.form.getlist("order_ids")
+        selected_ids = []
+        if order_ids_raw:
+            try:
+                selected_ids = [int(x) for x in order_ids_raw]
+            except ValueError:
+                return {"error": "Invalid task selection."}, 400
 
         status_filter = (request.form.get("status") or "").strip()
         if status_filter and status_filter not in BOARD_STATUSES:
@@ -555,7 +567,9 @@ def register_routes(app):
             Order.title != "",
             db.or_(Order.drive_links.is_(None), Order.drive_links == ""),
         ]
-        if status_filter:
+        if selected_ids:
+            order_filters.append(Order.id.in_(selected_ids))
+        elif status_filter:
             order_filters.append(Order.status == status_filter)
         orders = Order.query.filter(*order_filters).all()
 
@@ -598,6 +612,7 @@ def register_routes(app):
         db.session.commit()
         return {
             "status_scanned": status_filter or "all",
+            "selected_count": len(selected_ids),
             "filled": filled,
             "filled_count": len(filled),
             "skipped": skipped,
