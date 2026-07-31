@@ -1,10 +1,11 @@
 """
-Thin wrapper around the Google Drive API — used ONLY when a task's Drive
-link points to a .zip full of photos instead of a single image link.
+Thin wrapper around the Google Drive API — used when a task's Drive link
+points to a .zip or a folder full of photos instead of a single image link,
+and to auto-suggest a matching Drive folder/zip by a task's title.
 
 This needs a Google service account key pasted into Settings. If none is
-configured, zip links are simply left alone (plain single-image Drive links
-still work exactly as before — no Drive API needed for those).
+configured, zip/folder links are simply left alone (plain single-image
+Drive links still work exactly as before — no Drive API needed for those).
 """
 
 import io
@@ -18,6 +19,7 @@ from googleapiclient.http import MediaIoBaseDownload
 
 DRIVE_FILE_ID_PATTERNS = [
     re.compile(r"drive\.google\.com/file/d/([a-zA-Z0-9_-]+)"),
+    re.compile(r"drive\.google\.com/drive/(?:u/\d+/)?folders/([a-zA-Z0-9_-]+)"),
     re.compile(r"drive\.google\.com/open\?id=([a-zA-Z0-9_-]+)"),
     re.compile(r"drive\.google\.com/uc\?[^ ]*id=([a-zA-Z0-9_-]+)"),
     re.compile(r"[?&]id=([a-zA-Z0-9_-]+)"),
@@ -25,6 +27,7 @@ DRIVE_FILE_ID_PATTERNS = [
 
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp", ".gif")
 MAX_ZIP_BYTES = 60 * 1024 * 1024  # 60MB safety cap (Render free tier has limited RAM)
+FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
 
 
 class DriveError(Exception):
@@ -37,6 +40,17 @@ def extract_file_id(url):
         if m:
             return m.group(1)
     return None
+
+
+def resolve_folder_id(value):
+    """Accepts either a bare Drive folder ID or a full Drive folder URL and
+    returns just the ID."""
+    if not value:
+        return None
+    value = value.strip()
+    if "drive.google.com" in value:
+        return extract_file_id(value)
+    return value
 
 
 def get_service(service_account_json):
@@ -70,6 +84,86 @@ def is_zip(meta):
     name = (meta.get("name") or "").lower()
     mime = meta.get("mimeType") or ""
     return name.endswith(".zip") or mime in ("application/zip", "application/x-zip-compressed")
+
+
+def is_folder(meta):
+    return (meta.get("mimeType") or "") == FOLDER_MIME_TYPE
+
+
+def list_folder_images(service, folder_id):
+    """Returns [(name, mimeType, id), ...] for every direct-child image file
+    in a Drive folder (not recursive — matches a 'one folder per project,
+    photos loose inside it' layout)."""
+    try:
+        resp = (
+            service.files()
+            .list(
+                q=f"'{folder_id}' in parents and trashed = false",
+                fields="files(id,name,mimeType)",
+                pageSize=200,
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True,
+            )
+            .execute()
+        )
+    except Exception as e:  # noqa: BLE001
+        raise DriveError(
+            f"Couldn't list that Drive folder (id {folder_id}). Make sure it's shared with the "
+            f"service account's email address. Details: {e}"
+        )
+    files = resp.get("files", [])
+    images = [
+        (f["name"], f["mimeType"], f["id"])
+        for f in files
+        if (f.get("name") or "").lower().endswith(IMAGE_EXTENSIONS)
+    ]
+    images.sort(key=lambda item: item[0])
+    return images
+
+
+def find_by_name(service, name, root_folder_id=None):
+    """Searches Drive for a folder or zip file whose name matches `name`
+    (typically an order's title) — used to suggest a Drive link for a task
+    that doesn't have one yet. Tries an exact match first, then a looser
+    'contains' search. Optionally scoped to the direct children of
+    root_folder_id. Returns a dict (id, name, mimeType) or None."""
+    if not name or not name.strip():
+        return None
+
+    def _search(q):
+        try:
+            resp = (
+                service.files()
+                .list(
+                    q=q,
+                    fields="files(id,name,mimeType)",
+                    pageSize=5,
+                    supportsAllDrives=True,
+                    includeItemsFromAllDrives=True,
+                )
+                .execute()
+            )
+        except Exception as e:  # noqa: BLE001
+            raise DriveError(f"Drive search failed: {e}")
+        return resp.get("files", [])
+
+    escaped = name.strip().replace("\\", "\\\\").replace("'", "\\'")
+    type_filter = (
+        "(mimeType = 'application/vnd.google-apps.folder' "
+        "or mimeType = 'application/zip' or mimeType = 'application/x-zip-compressed')"
+    )
+    scope = f" and '{root_folder_id}' in parents" if root_folder_id else ""
+    base = f"trashed = false and {type_filter}{scope}"
+
+    for q in (
+        f"name = '{escaped}' and {base}",
+        f"name = '{escaped}.zip' and {base}",
+        f"name contains '{escaped}' and {base}",
+    ):
+        matches = _search(q)
+        if matches:
+            return matches[0]
+    return None
 
 
 def download_bytes(service, file_id, max_bytes=MAX_ZIP_BYTES):
