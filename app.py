@@ -463,6 +463,88 @@ def register_routes(app):
             else None,
         }
 
+    @app.route("/orders/auto-fill-drive-links", methods=["POST"])
+    @boss_required
+    def orders_auto_fill_drive_links():
+        """Fills in Drive links automatically using the boss's fixed folder
+        convention: one 'mother' Drive folder contains one sub-folder per
+        project, named exactly like the task's title. Somewhere inside that
+        project folder is a .zip per language: '<Title>.zip' for the base
+        language and '<Title>-<code>.zip' for the rest (see
+        drive.LANGUAGE_ZIP_SUFFIX). Never overwrites a Drive link that's
+        already set — only fills tasks that are still blank."""
+        sa_json = Setting.get("google_service_account_json")
+        if not sa_json:
+            return {"error": "Set up the Google service account in Settings first."}, 400
+
+        mother_raw = request.form.get("mother_folder") or Setting.get("drive_projects_root")
+        mother_folder_id = drive.resolve_folder_id(mother_raw)
+        if not mother_folder_id:
+            return {
+                "error": "No mother folder set. Paste its Drive link into Settings → "
+                "'Project folders root' first."
+            }, 400
+
+        try:
+            service = drive.get_service(sa_json)
+            project_folders = drive.list_child_folders(service, mother_folder_id)
+        except drive.DriveError as e:
+            return {"error": str(e)}, 400
+
+        project_map = {}
+        for f in project_folders:
+            project_map.setdefault(drive.normalize_name(f["name"]), f)
+
+        orders = Order.query.filter(
+            Order.title.isnot(None),
+            Order.title != "",
+            db.or_(Order.drive_links.is_(None), Order.drive_links == ""),
+        ).all()
+
+        zip_cache = {}  # project folder id -> list of zip file dicts found inside it
+        filled, skipped = [], []
+        for o in orders:
+            project = project_map.get(drive.normalize_name(o.title))
+            if not project:
+                skipped.append({"order_id": o.id, "title": o.title, "reason": "No matching project folder found."})
+                continue
+            try:
+                if project["id"] not in zip_cache:
+                    zip_cache[project["id"]] = drive.find_all_zips(service, project["id"])
+                match = drive.find_project_zip(zip_cache[project["id"]], o.title, o.language)
+            except drive.DriveError as e:
+                skipped.append({"order_id": o.id, "title": o.title, "reason": str(e)})
+                continue
+            if not match:
+                skipped.append(
+                    {
+                        "order_id": o.id,
+                        "title": o.title,
+                        "reason": f"Found project folder '{project['name']}' but no zip matched "
+                        f"language '{o.language or '(none)'}'.",
+                    }
+                )
+                continue
+            link = f"https://drive.google.com/file/d/{match['id']}/view"
+            o.drive_links = link
+            filled.append(
+                {
+                    "order_id": o.id,
+                    "title": o.title,
+                    "language": o.language,
+                    "link": link,
+                    "matched_name": match["name"],
+                }
+            )
+
+        db.session.commit()
+        return {
+            "filled": filled,
+            "filled_count": len(filled),
+            "skipped": skipped,
+            "skipped_count": len(skipped),
+        }
+
     @app.route("/orders/<int:order_id>/set-date", methods=["POST"])
     @boss_required
     def order_set_date(order_id):
