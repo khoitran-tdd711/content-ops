@@ -12,6 +12,20 @@ LANGUAGES = [
     "German", "Polish", "Portuguese", "Romanian", "Greek",
 ]
 
+# Just for a nicer Settings page (the "Account handle per language" section).
+LANGUAGE_FLAGS = {
+    "English": "\U0001F1EC\U0001F1E7",
+    "Spanish": "\U0001F1EA\U0001F1F8",
+    "Italian": "\U0001F1EE\U0001F1F9",
+    "French": "\U0001F1EB\U0001F1F7",
+    "Dutch": "\U0001F1F3\U0001F1F1",
+    "German": "\U0001F1E9\U0001F1EA",
+    "Polish": "\U0001F1F5\U0001F1F1",
+    "Portuguese": "\U0001F1F5\U0001F1F9",
+    "Romanian": "\U0001F1F7\U0001F1F4",
+    "Greek": "\U0001F1EC\U0001F1F7",
+}
+
 # Status flow:
 # ordered -> submitted -> (ready | to_modify)
 #   to_modify -> ordered (producer reworks, resubmits -> submitted)
