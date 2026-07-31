@@ -247,21 +247,43 @@ def find_all_zips(service, folder_id, max_depth=4):
     return zips
 
 
-def find_project_zip(zips, title, language):
-    """Given every zip found inside one project's Drive folder (see
-    find_all_zips) plus a task's title/language, returns the one zip that
-    matches the naming convention — '<Title>.zip' for the base language,
-    '<Title>-<code>.zip' for others (see LANGUAGE_ZIP_SUFFIX). Returns None
-    if nothing matches."""
-    target = normalize_name(title)
-    code = LANGUAGE_ZIP_SUFFIX.get(language) if language else None
-    wanted = f"{target} {code}" if code else target
+# Every recognized "this zip is for language X" suffix code, e.g. 'nl', 'it'.
+KNOWN_SUFFIX_CODES = {code for code in LANGUAGE_ZIP_SUFFIX.values() if code}
+
+
+def _zip_suffix_code(stem):
+    """Returns the trailing language-code word of a zip filename (without
+    its extension), e.g. 'nl' from 'How-long-companies-stay-private-nl', or
+    None if the name doesn't end in one of our known codes."""
+    words = normalize_name(stem).split(" ")
+    if words and words[-1] in KNOWN_SUFFIX_CODES:
+        return words[-1]
+    return None
+
+
+def find_project_zip(zips, language):
+    """Picks the right zip for `language` out of every zip found inside one
+    project's Drive folder (see find_all_zips). The project folder is
+    already matched to the task's title one level up, so the zip's own
+    filename does NOT need to match the title at all — e.g. a project named
+    'How long companies goes public' can contain a zip called
+    'How-long-do-companies-stay-private-before-going-public.zip' and it's
+    still correct, because it's the only zip in that project's folder.
+    Only the trailing language-code suffix matters: '-nl', '-it', etc. (see
+    LANGUAGE_ZIP_SUFFIX) — no suffix at all means the base/English version.
+    If more than one zip could plausibly match, that's treated as
+    ambiguous (returns None) rather than guessing wrong."""
+    wanted_code = LANGUAGE_ZIP_SUFFIX.get(language) if language else None
+    matches = []
     for f in zips:
         stem = f["name"]
         if stem.lower().endswith(".zip"):
             stem = stem[:-4]
-        if normalize_name(stem) == wanted:
-            return f
+        code = _zip_suffix_code(stem)
+        if code == wanted_code:
+            matches.append(f)
+    if len(matches) == 1:
+        return matches[0]
     return None
 
 
