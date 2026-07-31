@@ -45,6 +45,13 @@ from models import (
 )
 
 
+def wants_json():
+    """True when a Board row's JS sent this request via fetch() for an
+    instant in-place update, rather than a normal browser form submit that
+    expects a full-page redirect."""
+    return request.headers.get("X-Requested-With") == "XMLHttpRequest"
+
+
 def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
@@ -89,6 +96,8 @@ def register_context(app):
         if isinstance(e, HTTPException):
             return e
         app.logger.exception("Unhandled error")
+        if wants_json():
+            return {"ok": False, "error": str(e)}, 500
         flash(f"Something went wrong processing that request: {e}", "error")
         return redirect(request.referrer or url_for("calendar_view"))
 
@@ -163,6 +172,14 @@ def register_routes(app):
     def logout():
         session.clear()
         return redirect(url_for("login"))
+
+    @app.route("/healthz")
+    def healthz():
+        """No-login ping target — hitting this every few minutes keeps
+        Render's free web service and Neon's free database from going idle,
+        so the next real click doesn't have to pay the wake-up cost."""
+        db.session.execute(db.text("SELECT 1"))
+        return {"ok": True}
 
     @app.route("/")
     @login_required
@@ -561,7 +578,13 @@ def register_routes(app):
         order = Order.query.get_or_404(order_id)
         scheduled_str = request.form.get("scheduled_at")
         if scheduled_str:
-            order.scheduled_at = datetime.strptime(scheduled_str, "%Y-%m-%dT%H:%M")
+            try:
+                order.scheduled_at = datetime.strptime(scheduled_str, "%Y-%m-%dT%H:%M")
+            except ValueError:
+                if wants_json():
+                    return {"ok": False, "error": "That date/time doesn't look right."}, 400
+                flash("That date/time doesn't look right.", "error")
+                return redirect(request.referrer or url_for("board_view"))
             order.due_date = order.scheduled_at.date()
         else:
             order.scheduled_at = None
@@ -570,6 +593,8 @@ def register_routes(app):
         if platform:
             order.platform = platform
         db.session.commit()
+        if wants_json():
+            return {"ok": True}
         flash("Pub date updated.", "success")
         return redirect(request.referrer or url_for("board_view"))
 
@@ -581,8 +606,18 @@ def register_routes(app):
         if new_status in BOARD_STATUSES:
             order.status = new_status
             db.session.commit()
+            if wants_json():
+                return {
+                    "ok": True,
+                    "status": order.status,
+                    "label": order.status_label,
+                    "color": order.status_color,
+                    "text_color": order.status_text_color,
+                }
             flash("Status updated.", "success")
         else:
+            if wants_json():
+                return {"ok": False, "error": "Not a valid status."}, 400
             flash("Not a valid status.", "error")
         return redirect(request.referrer or url_for("board_view"))
 
@@ -592,6 +627,8 @@ def register_routes(app):
         order = Order.query.get_or_404(order_id)
         order.drive_links = request.form.get("drive_links", "").strip()
         db.session.commit()
+        if wants_json():
+            return {"ok": True, "open_link": order.drive_link_list[0] if order.drive_link_list else None}
         flash("Drive link updated.", "success")
         return redirect(request.referrer or url_for("board_view"))
 
@@ -602,6 +639,8 @@ def register_routes(app):
         producer_id = request.form.get("producer_id")
         order.producer_id = int(producer_id) if producer_id else None
         db.session.commit()
+        if wants_json():
+            return {"ok": True}
         flash("POC updated.", "success")
         return redirect(request.referrer or url_for("board_view"))
 
@@ -613,6 +652,8 @@ def register_routes(app):
         if platform:
             order.platform = platform
         db.session.commit()
+        if wants_json():
+            return {"ok": True}
         flash("Platform updated.", "success")
         return redirect(request.referrer or url_for("board_view"))
 
@@ -622,6 +663,8 @@ def register_routes(app):
         order = Order.query.get_or_404(order_id)
         order.language = request.form.get("language") or None
         db.session.commit()
+        if wants_json():
+            return {"ok": True}
         flash("Language updated.", "success")
         return redirect(request.referrer or url_for("board_view"))
 
@@ -631,6 +674,8 @@ def register_routes(app):
         order = Order.query.get_or_404(order_id)
         order.feedback_note = request.form.get("feedback_note", "").strip()
         db.session.commit()
+        if wants_json():
+            return {"ok": True, "note": order.feedback_note}
         flash("Note updated.", "success")
         return redirect(request.referrer or url_for("board_view"))
 
@@ -659,6 +704,30 @@ def register_routes(app):
             flash(f"Updated status for {len(ids)} task(s).", "success")
         else:
             flash("Pick at least one task and a valid status.", "error")
+        return redirect(request.referrer or url_for("board_view"))
+
+    @app.route("/orders/bulk-set-date", methods=["POST"])
+    @boss_required
+    def orders_bulk_set_date():
+        """Board bulk bar's 'Apply date' — sets the same pub date/time on
+        every selected task in one go (e.g. the same carousel translated
+        into 6 languages, all going out at once)."""
+        ids = [i for i in request.form.getlist("order_ids") if i]
+        scheduled_str = request.form.get("scheduled_at")
+        if not ids or not scheduled_str:
+            flash("Pick at least one task and a date/time.", "error")
+            return redirect(request.referrer or url_for("board_view"))
+        try:
+            scheduled_at = datetime.strptime(scheduled_str, "%Y-%m-%dT%H:%M")
+        except ValueError:
+            flash("That date/time doesn't look right.", "error")
+            return redirect(request.referrer or url_for("board_view"))
+        Order.query.filter(Order.id.in_(ids)).update(
+            {"scheduled_at": scheduled_at, "due_date": scheduled_at.date()},
+            synchronize_session=False,
+        )
+        db.session.commit()
+        flash(f"Set the pub date for {len(ids)} task(s).", "success")
         return redirect(request.referrer or url_for("board_view"))
 
     @app.route("/orders/<int:order_id>/duplicate", methods=["POST"])
