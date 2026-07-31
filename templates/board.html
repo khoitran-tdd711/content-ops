@@ -50,6 +50,10 @@
     max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     display: inline-block; text-align: left;
   }
+  .row-flash {
+    font-size: 11px; font-weight: 600; margin-left: 6px; opacity: 0;
+    transition: opacity .3s ease; white-space: nowrap;
+  }
 </style>
 
 <div class="board-wide">
@@ -109,7 +113,7 @@
     </div>
     <div style="display:flex;gap:8px">
       <button class="btn" type="submit">Filter</button>
-      <a class="btn secondary" href="{{ url_for('board_view') }}">Clear</a>
+      <a class="btn secondary" href="{{ url_for('board_view') }}" id="clear-filters-link">Clear</a>
     </div>
   </form>
 
@@ -120,6 +124,8 @@
       {% for s in board_statuses %}<option value="{{ s }}">{{ STATUS_LABELS[s] }}</option>{% endfor %}
     </select>
     <button type="button" class="btn" style="padding:4px 12px" onclick="submitBulk('status')">Apply status</button>
+    <input type="datetime-local" id="bulk-date-input" style="width:190px;margin:0">
+    <button type="button" class="btn" style="padding:4px 12px" onclick="submitBulk('date')">Apply pub date</button>
     <button type="button" class="btn danger" style="padding:4px 12px" onclick="submitBulk('delete')">Delete selected</button>
   </div>
   <form id="bulk-form" method="post" style="display:none"></form>
@@ -151,8 +157,9 @@
         <td><a href="{{ url_for('order_detail', order_id=o.id) }}">{{ o.title or '(untitled)' }}</a></td>
         <td>
           {% if current_user.is_boss %}
-          <form method="post" action="{{ url_for('order_set_platform', order_id=o.id) }}" style="margin:0">
-            <select name="platform" onchange="this.form.submit()" style="width:110px;padding:3px 6px;font-size:12px;margin:0">
+          <form method="post" action="{{ url_for('order_set_platform', order_id=o.id) }}" style="margin:0;display:inline-block"
+                onsubmit="return false" data-order-id="{{ o.id }}">
+            <select name="platform" onchange="ajaxSubmitRow(this.form)" style="width:110px;padding:3px 6px;font-size:12px;margin:0">
               {% for p in platforms %}<option value="{{ p }}" {{ 'selected' if o.platform == p }}>{{ p|title }}</option>{% endfor %}
             </select>
           </form>
@@ -162,8 +169,9 @@
         </td>
         <td>
           {% if current_user.is_boss %}
-          <form method="post" action="{{ url_for('order_set_language', order_id=o.id) }}" style="margin:0">
-            <select name="language" onchange="this.form.submit()" style="width:110px;padding:3px 6px;font-size:12px;margin:0">
+          <form method="post" action="{{ url_for('order_set_language', order_id=o.id) }}" style="margin:0;display:inline-block"
+                onsubmit="return false" data-order-id="{{ o.id }}">
+            <select name="language" onchange="ajaxSubmitRow(this.form)" style="width:110px;padding:3px 6px;font-size:12px;margin:0">
               <option value="" {{ 'selected' if not o.language }}>—</option>
               {% for l in languages %}<option value="{{ l }}" {{ 'selected' if o.language == l }}>{{ l }}</option>{% endfor %}
             </select>
@@ -174,8 +182,9 @@
         </td>
         <td>
           {% if current_user.is_boss %}
-          <form method="post" action="{{ url_for('order_set_producer', order_id=o.id) }}" style="margin:0">
-            <select name="producer_id" onchange="this.form.submit()" style="width:120px;padding:3px 6px;font-size:12px;margin:0">
+          <form method="post" action="{{ url_for('order_set_producer', order_id=o.id) }}" style="margin:0;display:inline-block"
+                onsubmit="return false" data-order-id="{{ o.id }}">
+            <select name="producer_id" onchange="ajaxSubmitRow(this.form)" style="width:120px;padding:3px 6px;font-size:12px;margin:0">
               <option value="">—</option>
               {% for p in producers %}<option value="{{ p.id }}" {{ 'selected' if o.producer_id == p.id }}>{{ p.name }}</option>{% endfor %}
             </select>
@@ -186,8 +195,9 @@
         </td>
         <td>
           {% if current_user.is_boss %}
-          <form method="post" action="{{ url_for('order_set_status', order_id=o.id) }}" style="margin:0">
-            <select name="status" onchange="this.form.submit()"
+          <form method="post" action="{{ url_for('order_set_status', order_id=o.id) }}" style="margin:0;display:inline-block"
+                onsubmit="return false" data-order-id="{{ o.id }}">
+            <select name="status" onchange="ajaxSubmitRow(this.form)"
                     style="width:150px;padding:4px 8px;font-size:13px;font-weight:600;color:{{ o.status_text_color }};background:{{ o.status_color }};border:none;margin:0">
               {% if o.status not in board_statuses %}
                 <option value="{{ o.status }}" selected>{{ o.status_label }} (current)</option>
@@ -203,7 +213,7 @@
         </td>
         <td>
           {% if current_user.is_boss %}
-          <button type="button" class="btn secondary note-btn" style="padding:4px 10px;font-size:12px"
+          <button type="button" class="btn secondary note-btn" id="note-btn-{{ o.id }}" style="padding:4px 10px;font-size:12px"
                   onclick="openNoteModal({{ o.id }}, {{ (o.feedback_note or '')|tojson }})">
             {{ o.feedback_note if o.feedback_note else 'Add note' }}
           </button>
@@ -214,14 +224,15 @@
         <td>
           {% if current_user.is_boss %}
           <form method="post" action="{{ url_for('order_set_drive_link', order_id=o.id) }}"
+                onsubmit="return ajaxSubmitRow(this)" data-order-id="{{ o.id }}"
                 style="display:flex;gap:4px;align-items:center;margin:0">
             <input type="text" name="drive_links" value="{{ o.drive_links or '' }}" placeholder="Drive link"
                    style="width:150px;padding:4px 6px;margin:0">
             <button class="btn" type="submit" style="padding:4px 10px">Save</button>
           </form>
-          {% if o.drive_link_list %}
-            <div style="margin-top:4px"><a href="{{ o.drive_link_list[0] }}" target="_blank">Open</a></div>
-          {% endif %}
+          <div id="drive-open-{{ o.id }}" style="margin-top:4px{{ '' if o.drive_link_list else ';display:none' }}">
+            <a href="{{ o.drive_link_list[0] if o.drive_link_list else '#' }}" target="_blank">Open</a>
+          </div>
           {% else %}
             {% if o.drive_link_list %}<a href="{{ o.drive_link_list[0] }}" target="_blank">Link</a>{% else %}—{% endif %}
           {% endif %}
@@ -229,6 +240,7 @@
         <td>
           {% if current_user.is_boss %}
           <form method="post" action="{{ url_for('order_set_date', order_id=o.id) }}"
+                onsubmit="return ajaxSubmitRow(this)" data-order-id="{{ o.id }}"
                 style="display:flex;gap:4px;align-items:center;margin:0">
             <input type="datetime-local" name="scheduled_at"
                    value="{{ o.scheduled_at.strftime('%Y-%m-%dT%H:%M') if o.scheduled_at else '' }}"
@@ -364,11 +376,111 @@
 
 {% if current_user.is_boss %}
 <script>
+// -- Instant in-place row saves (no full-page reload) ----------------------
+// Every per-row edit (platform/language/POC/status/note/drive link/pub
+// date) posts via fetch() instead of a normal form submit, so one click
+// only pays for one small request instead of a full Board reload — and, as
+// a side effect, editing several rows before saving any of them no longer
+// wipes out the ones you haven't saved yet.
+
+function flashNear(form, text, isError) {
+  const orderId = form.dataset.orderId;
+  const flashId = 'flash-' + form.getAttribute('action').replace(/[^a-z0-9]/gi, '-') + '-' + orderId;
+  let el = document.getElementById(flashId);
+  if (!el) {
+    el = document.createElement('span');
+    el.id = flashId;
+    el.className = 'row-flash';
+    form.insertAdjacentElement('afterend', el);
+  }
+  el.textContent = text;
+  el.style.color = isError ? '#DC4C4C' : '#2E6F68';
+  el.style.opacity = '1';
+  clearTimeout(el._fadeTimer);
+  el._fadeTimer = setTimeout(function () { el.style.opacity = '0'; }, 1200);
+}
+
+function applyRowUpdate(form, data) {
+  const statusSelect = form.querySelector('select[name="status"]');
+  if (statusSelect && data.color) {
+    statusSelect.style.background = data.color;
+    statusSelect.style.color = data.text_color;
+  }
+  if (Object.prototype.hasOwnProperty.call(data, 'open_link')) {
+    const openWrap = document.getElementById('drive-open-' + form.dataset.orderId);
+    if (openWrap) {
+      if (data.open_link) {
+        openWrap.style.display = '';
+        openWrap.querySelector('a').href = data.open_link;
+      } else {
+        openWrap.style.display = 'none';
+      }
+    }
+  }
+}
+
+window.ajaxSubmitRow = function (form) {
+  const btn = form.querySelector('button[type="submit"]');
+  const originalText = btn ? btn.textContent : null;
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  fetch(form.getAttribute('action'), {
+    method: 'POST',
+    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+    body: new FormData(form),
+  })
+    .then(function (r) { return r.json().then(function (data) { return { ok_http: r.ok, data: data }; }); })
+    .then(function (res) {
+      if (btn) { btn.disabled = false; btn.textContent = originalText || 'Save'; }
+      if (!res.data.ok) {
+        flashNear(form, res.data.error || 'Something went wrong.', true);
+        return;
+      }
+      flashNear(form, 'Saved', false);
+      applyRowUpdate(form, res.data);
+    })
+    .catch(function () {
+      if (btn) { btn.disabled = false; btn.textContent = originalText || 'Save'; }
+      flashNear(form, 'Network error — try again.', true);
+    });
+  return false;
+};
+
+let openNoteOrderId = null;
+
 function openNoteModal(orderId, currentNote) {
+  openNoteOrderId = orderId;
   document.getElementById('note-textarea').value = currentNote;
   document.getElementById('note-form').action = '/orders/' + orderId + '/set-note';
   document.getElementById('note-modal').showModal();
 }
+
+document.getElementById('note-form').addEventListener('submit', function (e) {
+  e.preventDefault();
+  const form = e.target;
+  const btn = form.querySelector('button[type="submit"]');
+  const originalText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+  fetch(form.action, {
+    method: 'POST',
+    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+    body: new FormData(form),
+  })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      btn.disabled = false;
+      btn.textContent = originalText;
+      if (!data.ok) { alert(data.error || 'Something went wrong.'); return; }
+      const noteBtn = document.getElementById('note-btn-' + openNoteOrderId);
+      if (noteBtn) noteBtn.textContent = data.note || 'Add note';
+      document.getElementById('note-modal').close();
+    })
+    .catch(function () {
+      btn.disabled = false;
+      btn.textContent = originalText;
+      alert('Network error — try again.');
+    });
+});
 
 (function () {
   const rowChecks = document.querySelectorAll('.row-check');
@@ -410,6 +522,15 @@ function openNoteModal(orderId, currentNote) {
     if (action === 'delete') {
       if (!confirm('Delete ' + ids.length + ' task(s)? This can\'t be undone.')) return;
       form.action = "{{ url_for('orders_bulk_delete') }}";
+    } else if (action === 'date') {
+      const dateVal = document.getElementById('bulk-date-input').value;
+      if (!dateVal) { alert('Pick a date and time first.'); return; }
+      const inp = document.createElement('input');
+      inp.type = 'hidden';
+      inp.name = 'scheduled_at';
+      inp.value = dateVal;
+      form.appendChild(inp);
+      form.action = "{{ url_for('orders_bulk_set_date') }}";
     } else {
       const status = document.getElementById('bulk-status-select').value;
       const inp = document.createElement('input');
@@ -546,4 +667,44 @@ function openNoteModal(orderId, currentNote) {
 })();
 </script>
 {% endif %}
+
+<script>
+// -- Remember the last filters used on the Board ----------------------------
+// Landing on /board via the nav link has no query string, so without this
+// every visit resets to "show everything." We save the filters actually in
+// effect (from the URL) to localStorage, and if a later visit shows up with
+// no query string at all, we restore them via a one-time redirect. Clicking
+// "Clear" wipes the saved filters first, so it still means "show everything."
+(function () {
+  var FILTER_KEYS = ['q', 'language', 'platform', 'status', 'sort'];
+  var STORAGE_KEY = 'board_filters';
+  var params = new URLSearchParams(window.location.search);
+
+  if (window.location.search.length > 0) {
+    var state = {};
+    FILTER_KEYS.forEach(function (k) { state[k] = params.get(k) || ''; });
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } else {
+    var saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      try {
+        var savedState = JSON.parse(saved);
+        var qs = new URLSearchParams();
+        FILTER_KEYS.forEach(function (k) { if (savedState[k]) qs.set(k, savedState[k]); });
+        var qsStr = qs.toString();
+        if (qsStr) {
+          window.location.replace("{{ url_for('board_view') }}?" + qsStr);
+        }
+      } catch (e) { /* ignore a corrupted saved value */ }
+    }
+  }
+
+  var clearLink = document.getElementById('clear-filters-link');
+  if (clearLink) {
+    clearLink.addEventListener('click', function () {
+      localStorage.removeItem(STORAGE_KEY);
+    });
+  }
+})();
+</script>
 {% endblock %}
