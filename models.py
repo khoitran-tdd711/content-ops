@@ -58,7 +58,10 @@ STATUS_LABELS = {
 }
 
 STATUS_COLORS = {
-    "ordered": "#2E6F68",
+    # Deliberately red so a freshly-created task pops out on the Board/
+    # Calendar legend, sitting visually between "Scheduled" and "Published"
+    # in the status list even though it's really the very first stage.
+    "ordered": "#DC4C4C",
     "submitted": "#6F8EFF",
     "to_modify": "#DC4C4C",
     "in_production": "#6F8EFF",
