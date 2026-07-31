@@ -41,7 +41,7 @@
 </p>
 <p class="muted">Drag an item to a new day to reschedule it. Click it to publish or open it.</p>
 
-<div style="margin:10px 0 16px;display:flex;gap:18px;align-items:center">
+<div style="margin:10px 0 16px;display:flex;gap:18px;align-items:center;flex-wrap:wrap">
   <label style="display:flex;gap:6px;align-items:center;margin:0;font-weight:500">
     <input type="checkbox" class="cal-filter" value="planned" checked style="width:auto;margin:0"> Planned
   </label>
@@ -51,6 +51,7 @@
   <label style="display:flex;gap:6px;align-items:center;margin:0;font-weight:500">
     <input type="checkbox" class="cal-filter" value="published" checked style="width:auto;margin:0"> Published
   </label>
+  <input type="text" id="cal-search" placeholder="Search tasks…" style="width:220px;margin:0 0 0 auto">
 </div>
 
 <div id="calendar"></div>
@@ -80,10 +81,17 @@
 document.addEventListener('DOMContentLoaded', function () {
   const calendarEl = document.getElementById('calendar');
   const filterBoxes = document.querySelectorAll('.cal-filter');
+  const searchInput = document.getElementById('cal-search');
   const modal = document.getElementById('event-modal');
 
   function activeBuckets() {
     return Array.from(filterBoxes).filter(cb => cb.checked).map(cb => cb.value);
+  }
+
+  function matchesSearch(e, term) {
+    if (!term) return true;
+    const haystack = ((e.projectTitle || e.title || '') + ' ' + (e.accountLabel || '')).toLowerCase();
+    return haystack.includes(term);
   }
 
   function escapeHtml(s) {
@@ -106,9 +114,25 @@ document.addEventListener('DOMContentLoaded', function () {
         .then(r => r.json())
         .then(data => {
           const active = activeBuckets();
-          successCallback(data.events.filter(e => active.includes(e.bucket)));
+          const term = (searchInput.value || '').trim().toLowerCase();
+          successCallback(data.events.filter(e => active.includes(e.bucket) && matchesSearch(e, term)));
         })
         .catch(failureCallback);
+    },
+    // Same-project cards stack together (e.g. every language of "Zara and
+    // why it succeed" one after another) instead of being interleaved
+    // purely by time, so a busy day reads as groups rather than a shuffled
+    // list.
+    eventOrder: function (a, b) {
+      const ta = (a.extendedProps.projectTitle || a.title || '').toLowerCase();
+      const tb = (b.extendedProps.projectTitle || b.title || '').toLowerCase();
+      if (ta < tb) return -1;
+      if (ta > tb) return 1;
+      const aa = (a.extendedProps.accountLabel || '').toLowerCase();
+      const ab = (b.extendedProps.accountLabel || '').toLowerCase();
+      if (aa < ab) return -1;
+      if (aa > ab) return 1;
+      return 0;
     },
     eventContent: function (arg) {
       const props = arg.event.extendedProps;
@@ -170,6 +194,12 @@ document.addEventListener('DOMContentLoaded', function () {
 
   filterBoxes.forEach(function (cb) {
     cb.addEventListener('change', function () { calendar.refetchEvents(); });
+  });
+
+  let searchDebounce;
+  searchInput.addEventListener('input', function () {
+    clearTimeout(searchDebounce);
+    searchDebounce = setTimeout(function () { calendar.refetchEvents(); }, 250);
   });
 
   calendar.render();
