@@ -520,14 +520,19 @@ def register_routes(app):
         project, named exactly like the task's title. Somewhere inside that
         project folder is a .zip per language: '<Title>.zip' for the base
         language and '<Title>-<code>.zip' for the rest (see
-        drive.LANGUAGE_ZIP_SUFFIX). Never overwrites a Drive link that's
-        already set — only fills tasks that are still blank. Scoped to
-        exactly the tasks selected on the Board (order_ids, from the bulk
-        bar), or to one status at a time, or every status if left
-        blank/"all" — an explicit order_ids selection always wins over the
-        status filter, since picking specific rows is a stronger signal
-        than "whatever happens to be in this status" and is the whole
-        point of scanning just a couple of new tasks instead of everything."""
+        drive.LANGUAGE_ZIP_SUFFIX). Scoped to exactly the tasks selected on
+        the Board (order_ids, from the bulk bar), or to one status at a
+        time, or every status if left blank/"all" — an explicit order_ids
+        selection always wins over the status filter.
+
+        Overwrite behavior differs by scope on purpose: a broad status-based
+        scan never touches a task that already has a Drive link, since
+        clobbering something a producer already set correctly across the
+        whole board would be worse than leaving a few blanks. But an
+        explicit order_ids selection *does* overwrite — picking specific
+        rows and hitting "scan selected" is a clear signal the boss wants
+        those exact rows re-matched (e.g. after changing a task's language,
+        so the wrong-language zip it was first filled with gets replaced)."""
         sa_json = Setting.get("google_service_account_json")
         if not sa_json:
             return {"error": "Set up the Google service account in Settings first."}, 400
@@ -562,15 +567,15 @@ def register_routes(app):
         for f in project_folders:
             project_map.setdefault(drive.normalize_name(f["name"]), f)
 
-        order_filters = [
-            Order.title.isnot(None),
-            Order.title != "",
-            db.or_(Order.drive_links.is_(None), Order.drive_links == ""),
-        ]
+        order_filters = [Order.title.isnot(None), Order.title != ""]
         if selected_ids:
+            # An explicit selection may re-match tasks that already have a
+            # (possibly wrong-language) link — see the overwrite note above.
             order_filters.append(Order.id.in_(selected_ids))
-        elif status_filter:
-            order_filters.append(Order.status == status_filter)
+        else:
+            order_filters.append(db.or_(Order.drive_links.is_(None), Order.drive_links == ""))
+            if status_filter:
+                order_filters.append(Order.status == status_filter)
         orders = Order.query.filter(*order_filters).all()
 
         zip_cache = {}  # project folder id -> list of zip file dicts found inside it
