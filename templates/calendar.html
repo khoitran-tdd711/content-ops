@@ -37,6 +37,21 @@
   #preview-lightbox::backdrop { background: rgba(0,0,0,.8); }
   #preview-lightbox img { max-width: 92vw; max-height: 92vh; border-radius: 10px; display: block; cursor: pointer; }
   #event-modal-caption { min-height: 160px; resize: vertical; max-width: 100%; box-sizing: border-box; }
+  /* Platform filter chips — colorful (and clearly "on") when checked,
+     grayscale and dim when off, so it reads at a glance which platforms
+     are showing without needing a legend. */
+  .platform-chip {
+    display: inline-flex; align-items: center; gap: 7px; margin: 0;
+    padding: 6px 14px 6px 10px; border-radius: 999px; border: 1.5px solid var(--border);
+    cursor: pointer; font-weight: 600; font-size: 13px; user-select: none;
+    transition: background .15s, border-color .15s, filter .15s;
+    filter: grayscale(1) opacity(.5);
+  }
+  .platform-chip input { display: none; }
+  .platform-chip svg { width: 16px; height: 16px; flex-shrink: 0; color: var(--accent); }
+  .platform-chip:has(input:checked) { border-color: var(--accent); background: var(--accent-tint); filter: none; }
+  .platform-chip[data-platform="instagram"] { --accent: #C13584; --accent-tint: rgba(193,53,132,.12); }
+  .platform-chip[data-platform="linkedin"] { --accent: #0A66C2; --accent-tint: rgba(10,102,194,.12); }
 </style>
 <div class="calendar-wide">
 <h2>Content calendar</h2>
@@ -61,6 +76,27 @@
     <input type="checkbox" class="cal-filter" value="published" checked style="width:auto;margin:0"> Published
   </label>
   <input type="text" id="cal-search" placeholder="Search tasks…" style="width:220px;margin:0 0 0 auto">
+</div>
+
+<div style="margin:0 0 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+  <label class="platform-chip" data-platform="instagram">
+    <input type="checkbox" class="cal-platform-filter" value="instagram" checked>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="3" y="3" width="18" height="18" rx="5"/>
+      <circle cx="12" cy="12" r="4"/>
+      <circle cx="17.3" cy="6.7" r=".6" fill="currentColor" stroke="none"/>
+    </svg>
+    Instagram
+  </label>
+  <label class="platform-chip" data-platform="linkedin">
+    <input type="checkbox" class="cal-platform-filter" value="linkedin" checked>
+    <svg viewBox="0 0 24 24" fill="currentColor">
+      <rect x="2.5" y="9" width="4" height="12" rx="1"/>
+      <circle cx="4.5" cy="4.3" r="2.3"/>
+      <path d="M9.5 9h4v2.2c.9-1.6 2.6-2.6 4.5-2.6 3.7 0 5.5 2.3 5.5 6.5V21h-4v-5.3c0-1.9-.7-3.2-2.4-3.2-1.3 0-2.1.9-2.5 1.8-.1.3-.1.7-.1 1.1V21h-4V9z"/>
+    </svg>
+    LinkedIn
+  </label>
 </div>
 
 <div id="calendar"></div>
@@ -102,11 +138,25 @@
 document.addEventListener('DOMContentLoaded', function () {
   const calendarEl = document.getElementById('calendar');
   const filterBoxes = document.querySelectorAll('.cal-filter');
+  const platformBoxes = document.querySelectorAll('.cal-platform-filter');
   const searchInput = document.getElementById('cal-search');
   const modal = document.getElementById('event-modal');
 
   function activeBuckets() {
     return Array.from(filterBoxes).filter(cb => cb.checked).map(cb => cb.value);
+  }
+
+  function activePlatforms() {
+    return Array.from(platformBoxes).filter(cb => cb.checked).map(cb => cb.value);
+  }
+
+  // Only Instagram/LinkedIn have a chip right now — anything else (no
+  // platform set, or a platform without its own chip yet) always shows,
+  // so this filter can never silently hide a task there's no toggle for.
+  const FILTERABLE_PLATFORMS = Array.from(platformBoxes).map(cb => cb.value);
+  function matchesPlatform(e, active) {
+    if (!e.platform || !FILTERABLE_PLATFORMS.includes(e.platform)) return true;
+    return active.includes(e.platform);
   }
 
   function matchesSearch(e, term) {
@@ -171,8 +221,11 @@ document.addEventListener('DOMContentLoaded', function () {
         .then(r => r.json())
         .then(data => {
           const active = activeBuckets();
+          const activePlats = activePlatforms();
           const term = (searchInput.value || '').trim().toLowerCase();
-          successCallback(data.events.filter(e => active.includes(e.bucket) && matchesSearch(e, term)));
+          successCallback(data.events.filter(e =>
+            active.includes(e.bucket) && matchesSearch(e, term) && matchesPlatform(e, activePlats)
+          ));
         })
         .catch(failureCallback);
     },
@@ -345,6 +398,9 @@ document.addEventListener('DOMContentLoaded', function () {
   });
 
   filterBoxes.forEach(function (cb) {
+    cb.addEventListener('change', function () { calendar.refetchEvents(); });
+  });
+  platformBoxes.forEach(function (cb) {
     cb.addEventListener('change', function () { calendar.refetchEvents(); });
   });
 
