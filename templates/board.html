@@ -29,6 +29,8 @@
   #drive-suggest-modal::backdrop { background: rgba(0,0,0,.4); }
   #autofill-drive-modal { border: none; border-radius: 12px; padding: 0; width: 640px; max-width: 92vw; }
   #autofill-drive-modal::backdrop { background: rgba(0,0,0,.4); }
+  #new-drive-projects-modal { border: none; border-radius: 12px; padding: 0; width: 640px; max-width: 92vw; }
+  #new-drive-projects-modal::backdrop { background: rgba(0,0,0,.4); }
   .autofill-row { padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
   .autofill-row:last-child { border-bottom: none; }
   .autofill-row .t { font-weight: 600; }
@@ -69,6 +71,7 @@
       </select>
       <button type="button" class="btn secondary" id="btn-autofill-drive-links">Auto-fill Drive links</button>
       <button type="button" class="btn secondary" id="btn-find-drive-links">Find Drive links</button>
+      <button type="button" class="btn secondary" id="btn-find-new-drive-projects">Find new Drive projects</button>
       {% endif %}
       <button type="button" class="btn" onclick="document.getElementById('new-task-modal').showModal()">+ New task</button>
     </div>
@@ -374,8 +377,28 @@
   </div>
 </dialog>
 
+<dialog id="new-drive-projects-modal">
+  <div class="card" style="margin:0;border:none;max-height:85vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h3 style="margin:0">New Drive projects</h3>
+      <button type="button" class="btn secondary" style="padding:4px 10px" id="new-drive-projects-close">✕</button>
+    </div>
+    <p class="muted" style="margin-top:8px">
+      Project folders in your mother Drive folder that don't have a matching task on the Board yet.
+      Adding one here only creates the task itself (title, and language/platform if you pick them) —
+      it never touches any task that's already on the Board. Add the Drive link afterward with
+      "Auto-fill Drive links", or duplicate the row per language.
+    </p>
+    <p class="muted" id="new-drive-projects-status" style="margin-top:8px">Scanning Drive…</p>
+    <div id="new-drive-projects-list"></div>
+  </div>
+</dialog>
+
 {% if current_user.is_boss %}
 <script>
+const BOARD_LANGUAGES = {{ languages|tojson }};
+const BOARD_PLATFORMS = {{ platforms|tojson }};
+
 // -- Instant in-place row saves (no full-page reload) ----------------------
 // Every per-row edit (platform/language/POC/status/note/drive link/pub
 // date) posts via fetch() instead of a normal form submit, so one click
@@ -657,6 +680,84 @@ document.getElementById('note-form').addEventListener('submit', function (e) {
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                 body: 'drive_links=' + encodeURIComponent(c.match_link)
               }).then(function () { location.reload(); });
+            });
+            list.appendChild(row);
+          });
+        })
+        .catch(function (e) { status.textContent = 'Error: ' + e; });
+    });
+  }
+
+  const findNewBtn = document.getElementById('btn-find-new-drive-projects');
+  if (findNewBtn) {
+    const modal = document.getElementById('new-drive-projects-modal');
+    const status = document.getElementById('new-drive-projects-status');
+    const list = document.getElementById('new-drive-projects-list');
+    let didAdd = false;
+
+    document.getElementById('new-drive-projects-close').addEventListener('click', function () {
+      modal.close();
+      if (didAdd) location.reload();
+    });
+
+    function languageOptionsHtml() {
+      return '<option value="">— language —</option>' +
+        BOARD_LANGUAGES.map(function (l) { return '<option value="' + l + '">' + l + '</option>'; }).join('');
+    }
+
+    findNewBtn.addEventListener('click', function () {
+      list.innerHTML = '';
+      status.textContent = 'Scanning Drive for project folders with no matching task…';
+      modal.showModal();
+
+      fetch("{{ url_for('orders_find_new_drive_projects') }}")
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (data.error) {
+            status.textContent = 'Error: ' + data.error;
+            return;
+          }
+          if (!data.new_projects.length) {
+            status.textContent = 'Scanned ' + data.scanned_folders + ' project folder(s) in Drive — every one already has a Board task.';
+            return;
+          }
+          status.textContent = 'Found ' + data.new_projects.length + ' project folder(s) out of ' +
+            data.scanned_folders + ' with no matching Board task yet:';
+
+          data.new_projects.forEach(function (p) {
+            const row = document.createElement('div');
+            row.className = 'suggest-row';
+            row.innerHTML =
+              '<div class="info">' +
+                '<div class="t">' + p.name + '</div>' +
+                '<div class="m"><a href="' + p.link + '" target="_blank">Open in Drive</a></div>' +
+              '</div>' +
+              '<div class="actions">' +
+                '<select class="np-lang" style="width:120px;padding:4px 6px;font-size:12px;margin:0">' + languageOptionsHtml() + '</select>' +
+                '<button type="button" class="btn" style="padding:6px 12px">Add task</button>' +
+              '</div>';
+            const langSelect = row.querySelector('select');
+            const addBtn = row.querySelector('button');
+            addBtn.addEventListener('click', function () {
+              addBtn.disabled = true;
+              addBtn.textContent = 'Adding…';
+              fetch("{{ url_for('orders_quick_add_from_drive') }}", {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: 'title=' + encodeURIComponent(p.name) + '&language=' + encodeURIComponent(langSelect.value)
+              })
+                .then(function (r) { return r.json(); })
+                .then(function (d) {
+                  if (!d.ok) {
+                    addBtn.disabled = false;
+                    addBtn.textContent = 'Add task';
+                    alert(d.error || 'Something went wrong.');
+                    return;
+                  }
+                  addBtn.textContent = 'Added ✓';
+                  langSelect.disabled = true;
+                  didAdd = true;
+                });
             });
             list.appendChild(row);
           });
