@@ -57,6 +57,12 @@
     <h2 style="margin:0">Board</h2>
     <div style="display:flex;gap:10px">
       {% if current_user.is_boss %}
+      <select id="autofill-status-select" style="width:170px;margin:0" title="Which status to scan">
+        <option value="">All statuses</option>
+        {% for s in board_statuses %}
+        <option value="{{ s }}" {{ 'selected' if s == 'ready' }}>{{ STATUS_LABELS[s] }}</option>
+        {% endfor %}
+      </select>
       <button type="button" class="btn secondary" id="btn-autofill-drive-links">Auto-fill Drive links</button>
       <button type="button" class="btn secondary" id="btn-find-drive-links">Find Drive links</button>
       {% endif %}
@@ -435,10 +441,19 @@ function openNoteModal(orderId, currentNote) {
       skippedList.innerHTML = '';
       skippedWrap.style.display = 'none';
       didFill = false;
-      status.textContent = 'Matching Drive folders… this can take a little while for a lot of tasks.';
+      const statusSelect = document.getElementById('autofill-status-select');
+      const statusValue = statusSelect ? statusSelect.value : '';
+      const statusLabel = statusValue
+        ? (statusSelect.options[statusSelect.selectedIndex].textContent)
+        : 'all statuses';
+      status.textContent = 'Matching Drive folders for ' + statusLabel + '… this can take a little while.';
       modal.showModal();
 
-      fetch("{{ url_for('orders_auto_fill_drive_links') }}", { method: 'POST' })
+      fetch("{{ url_for('orders_auto_fill_drive_links') }}", {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'status=' + encodeURIComponent(statusValue)
+      })
         .then(function (r) { return r.json(); })
         .then(function (data) {
           if (data.error) {
@@ -446,8 +461,8 @@ function openNoteModal(orderId, currentNote) {
             return;
           }
           didFill = data.filled_count > 0;
-          status.textContent = 'Filled ' + data.filled_count + ' task(s). ' +
-            data.skipped_count + ' not matched.';
+          status.textContent = 'Scanned "' + statusLabel + '": filled ' + data.filled_count +
+            ' task(s), ' + data.skipped_count + ' not matched.';
 
           data.filled.forEach(function (f) {
             const row = document.createElement('div');
