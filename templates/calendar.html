@@ -74,8 +74,13 @@
       <label>Publish date &amp; time</label>
       <input type="datetime-local" id="event-modal-datetime" name="scheduled_at" required>
 
-      <label>Description</label>
+      <div style="display:flex;justify-content:space-between;align-items:baseline">
+        <label style="margin-bottom:0">Description</label>
+        <button type="button" class="btn secondary" id="btn-generate-caption"
+                style="padding:2px 10px;font-size:12px">Generate caption</button>
+      </div>
       <textarea id="event-modal-caption" name="caption" placeholder="Caption for this post"></textarea>
+      <p id="event-modal-caption-status" class="muted" style="margin:4px 0 0;font-size:12px"></p>
 
       <p id="event-modal-status" class="muted" style="margin:8px 0 0;font-size:12px"></p>
 
@@ -154,6 +159,8 @@ document.addEventListener('DOMContentLoaded', function () {
     initialView: 'dayGridMonth',
     height: 'auto',
     editable: true,
+    firstDay: 1, // Monday, not Sunday
+    allDayText: '',
     headerToolbar: {
       left: 'prev,next today',
       center: 'title',
@@ -234,6 +241,8 @@ document.addEventListener('DOMContentLoaded', function () {
       document.getElementById('event-modal-caption').value = props.caption || '';
       document.getElementById('event-modal-modify').href = info.event.url;
       document.getElementById('event-modal-publish-form').action = '/orders/' + info.event.id + '/publish-now';
+      document.getElementById('event-modal-caption-status').textContent = '';
+      document.getElementById('btn-generate-caption').dataset.orderId = info.event.id;
       loadMediaPreview(info.event.id);
       modal.showModal();
     },
@@ -284,6 +293,48 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         modal.close();
         calendar.refetchEvents();
+      })
+      .catch(function () {
+        btn.disabled = false;
+        btn.textContent = originalText;
+        statusEl.style.color = '#DC4C4C';
+        statusEl.textContent = 'Network error — try again.';
+      });
+  });
+
+  // Drafts a caption from this task's actual photos via Claude (see
+  // /orders/<id>/generate-caption). Never touches anything already typed
+  // without asking first, since the boss might have already written or
+  // tweaked a caption by hand.
+  document.getElementById('btn-generate-caption').addEventListener('click', function () {
+    const btn = this;
+    const orderId = btn.dataset.orderId;
+    const textarea = document.getElementById('event-modal-caption');
+    const statusEl = document.getElementById('event-modal-caption-status');
+    if (textarea.value.trim() && !confirm('Replace the current description with an AI-generated one?')) {
+      return;
+    }
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Generating…';
+    statusEl.style.color = '';
+    statusEl.textContent = 'Reading photos and asking Claude for a draft…';
+    fetch('/orders/' + orderId + '/generate-caption', {
+      method: 'POST',
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        btn.disabled = false;
+        btn.textContent = originalText;
+        if (!data.ok) {
+          statusEl.style.color = '#DC4C4C';
+          statusEl.textContent = data.error || 'Something went wrong.';
+          return;
+        }
+        textarea.value = data.caption;
+        statusEl.style.color = '';
+        statusEl.textContent = 'Draft added — review before publishing.';
       })
       .catch(function () {
         btn.disabled = false;
