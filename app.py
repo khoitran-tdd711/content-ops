@@ -25,6 +25,7 @@ from werkzeug.exceptions import HTTPException
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.utils import secure_filename
 
+import captions
 import drive
 import language_tracker
 import mailer
@@ -36,6 +37,7 @@ os.makedirs(MEDIA_CACHE_DIR, exist_ok=True)
 from models import (
     BOARD_STATUSES,
     CONTENT_TYPES,
+    LANGUAGE_FLAGS,
     LANGUAGES,
     PLATFORMS,
     STATUS_LABELS,
@@ -1019,6 +1021,48 @@ def register_routes(app):
             return {"images": [], "error": f"Couldn't load a preview: {e}"}
         return {"images": image_urls}
 
+    @app.route("/orders/<int:order_id>/generate-caption", methods=["POST"])
+    @boss_required
+    def order_generate_caption(order_id):
+        """Calendar's 'Generate caption' button — writes a draft caption
+        from this task's actual photos via Claude, following Akka's
+        caption rules (hook first, facts-based, translated CTA with the
+        right @handle for the task's language, up to 5 SEO hashtags).
+        Never saves anything; the boss reviews/edits before publishing."""
+        order = Order.query.get_or_404(order_id)
+        api_key = Setting.get("anthropic_api_key")
+        if not api_key:
+            return {"ok": False, "error": "Add your Anthropic API key in Settings first."}, 400
+        if not order.drive_link_list:
+            return {"ok": False, "error": "No Drive link set yet for this task."}, 400
+
+        # Deliberately does NOT fall back to the English handle for a task
+        # that has a language set — mentioning @akka.app in a Greek caption
+        # (say) just because Greek isn't configured yet would be worse than
+        # a clear error asking to add it.
+        if order.language:
+            handle = Setting.get(f"caption_handle_{order.language}")
+        else:
+            handle = Setting.get("caption_handle_English")
+        if not handle:
+            who = order.language or "English (main)"
+            return {
+                "ok": False,
+                "error": f"No account handle set for {who} yet — add it in Settings under "
+                "'Account handle per language'.",
+            }, 400
+
+        try:
+            images = _collect_order_images(order)
+            caption = captions.generate_caption(api_key, images, order.language, handle)
+        except drive.DriveError as e:
+            return {"ok": False, "error": str(e)}, 400
+        except captions.CaptionError as e:
+            return {"ok": False, "error": str(e)}, 400
+        except Exception as e:  # noqa: BLE001 - must never 500
+            return {"ok": False, "error": f"Couldn't generate a caption: {e}"}, 500
+        return {"ok": True, "caption": caption}
+
     @app.route("/orders/<int:order_id>/mark-published", methods=["POST"])
     @boss_required
     def order_mark_published(order_id):
@@ -1063,6 +1107,7 @@ def register_routes(app):
         language_nickname_mapping = {
             p: {l: Setting.get(f"oneup_social_nickname_{p}_{l}") for l in LANGUAGES} for p in PLATFORMS
         }
+        caption_handles = {l: Setting.get(f"caption_handle_{l}") for l in LANGUAGES}
         return render_template(
             "settings.html",
             api_key=api_key,
@@ -1070,11 +1115,14 @@ def register_routes(app):
             category_mapping=category_mapping,
             platforms=PLATFORMS,
             languages=LANGUAGES,
+            language_flags=LANGUAGE_FLAGS,
             language_mapping=language_mapping,
             nickname_mapping=nickname_mapping,
             language_nickname_mapping=language_nickname_mapping,
             google_service_account_json=Setting.get("google_service_account_json") or "",
             drive_projects_root=Setting.get("drive_projects_root") or "",
+            anthropic_api_key=Setting.get("anthropic_api_key") or "",
+            caption_handles=caption_handles,
         )
 
     @app.route("/settings/save", methods=["POST"])
@@ -1101,6 +1149,9 @@ def register_routes(app):
             request.form.get("google_service_account_json", "").strip(),
         )
         Setting.set("drive_projects_root", request.form.get("drive_projects_root", "").strip())
+        Setting.set("anthropic_api_key", request.form.get("anthropic_api_key", "").strip())
+        for l in LANGUAGES:
+            Setting.set(f"caption_handle_{l}", request.form.get(f"caption_handle_{l}", "").strip())
         flash("Settings saved.", "success")
         return redirect(url_for("settings"))
 
@@ -1191,6 +1242,43 @@ def _host_images_temporarily(images):
         save_temp_media(token, safe_name, data)
         urls.append(f"{base}/media/{token}/{safe_name}")
     return urls
+
+
+def _collect_order_images(order, max_images=6):
+    """Resolves an order's Drive link(s) into actual (filename, bytes)
+    photo data, for the AI caption generator — a separate, read-only path
+    from expand_drive_links (which hosts photos temporarily for OneUp to
+    fetch); kept apart on purpose so this feature can't affect publishing.
+    Capped at max_images since a caption only needs to 'see' the carousel,
+    not necessarily every single slide."""
+    sa_json = Setting.get("google_service_account_json")
+    if not sa_json:
+        return []
+    service = None
+    collected = []
+    for link in order.drive_link_list:
+        if len(collected) >= max_images:
+            break
+        file_id = drive.extract_file_id(link)
+        if not file_id:
+            continue
+        if service is None:
+            service = drive.get_service(sa_json)
+        meta = drive.get_file_metadata(service, file_id)
+        if drive.is_folder(meta):
+            for name, _mime, fid in drive.list_folder_images(service, file_id):
+                if len(collected) >= max_images:
+                    break
+                collected.append((name, drive.download_bytes(service, fid)))
+        elif drive.is_zip(meta):
+            zip_bytes = drive.download_bytes(service, file_id)
+            for name, data in drive.extract_images(zip_bytes):
+                if len(collected) >= max_images:
+                    break
+                collected.append((name, data))
+        elif drive.is_image(meta):
+            collected.append((meta.get("name", "image.jpg"), drive.download_bytes(service, file_id)))
+    return collected[:max_images]
 
 
 def expand_drive_links(order):
