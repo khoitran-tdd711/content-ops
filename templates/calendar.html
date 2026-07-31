@@ -31,8 +31,11 @@
   .preview-strip { display: flex; gap: 6px; overflow-x: auto; padding: 2px 0 6px; }
   .preview-strip img {
     width: 72px; height: 72px; object-fit: cover; border-radius: 8px;
-    border: 1px solid var(--border); flex-shrink: 0; background: var(--bg);
+    border: 1px solid var(--border); flex-shrink: 0; background: var(--bg); cursor: pointer;
   }
+  #preview-lightbox { border: none; background: transparent; padding: 0; max-width: 92vw; max-height: 92vh; }
+  #preview-lightbox::backdrop { background: rgba(0,0,0,.8); }
+  #preview-lightbox img { max-width: 92vw; max-height: 92vh; border-radius: 10px; display: block; cursor: pointer; }
 </style>
 <div class="calendar-wide">
 <h2>Content calendar</h2>
@@ -83,6 +86,10 @@
   </div>
 </dialog>
 
+<dialog id="preview-lightbox">
+  <img id="preview-lightbox-img" src="" alt="Preview">
+</dialog>
+
 <script>
 document.addEventListener('DOMContentLoaded', function () {
   const calendarEl = document.getElementById('calendar');
@@ -129,7 +136,9 @@ document.addEventListener('DOMContentLoaded', function () {
           return;
         }
         wrap.innerHTML = '<div class="preview-strip">' +
-          data.images.map(function (u) { return '<img src="' + u + '" loading="lazy">'; }).join('') +
+          data.images.map(function (u) {
+            return '<img src="' + u + '" loading="lazy" onclick="openLightbox(this.src)">';
+          }).join('') +
           '</div>';
       })
       .catch(function () {
@@ -235,6 +244,13 @@ document.addEventListener('DOMContentLoaded', function () {
       }).catch(function () { info.revert(); });
     }
   });
+
+  const lightbox = document.getElementById('preview-lightbox');
+  lightbox.addEventListener('click', function () { lightbox.close(); });
+  window.openLightbox = function (src) {
+    document.getElementById('preview-lightbox-img').src = src;
+    lightbox.showModal();
+  };
 
   filterBoxes.forEach(function (cb) {
     cb.addEventListener('change', function () { calendar.refetchEvents(); });
