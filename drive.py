@@ -106,6 +106,10 @@ def is_folder(meta):
     return (meta.get("mimeType") or "") == FOLDER_MIME_TYPE
 
 
+def is_image(meta):
+    return (meta.get("mimeType") or "").startswith("image/")
+
+
 def list_folder_images(service, folder_id):
     """Returns [(name, mimeType, id), ...] for every direct-child image file
     in a Drive folder (not recursive — matches a 'one folder per project,
