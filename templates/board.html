@@ -68,9 +68,9 @@
     <div style="display:flex;gap:10px">
       {% if current_user.is_boss %}
       <select id="autofill-status-select" style="width:170px;margin:0" title="Which status to scan">
-        <option value="">All statuses</option>
+        <option value="" selected>All statuses</option>
         {% for s in board_statuses %}
-        <option value="{{ s }}" {{ 'selected' if s == 'ready' }}>{{ STATUS_LABELS[s] }}</option>
+        <option value="{{ s }}">{{ STATUS_LABELS[s] }}</option>
         {% endfor %}
       </select>
       <button type="button" class="btn secondary" id="btn-autofill-drive-links">Auto-fill Drive links</button>
@@ -289,7 +289,8 @@
       <button type="button" class="btn secondary" style="padding:4px 10px"
               onclick="document.getElementById('new-task-modal').close()">✕</button>
     </div>
-    <form method="post" action="{{ url_for('order_import') }}" style="margin-top:10px">
+    <form method="post" action="{{ url_for('order_import') }}" style="margin-top:10px"
+          onsubmit="var b=this.querySelector('button[type=submit]'); b.disabled=true; b.textContent='Creating…';">
       <label>Platform</label>
       <select name="platform">
         {% for p in platforms %}<option value="{{ p }}" {{ 'selected' if p == 'instagram' }}>{{ p|title }}</option>{% endfor %}
