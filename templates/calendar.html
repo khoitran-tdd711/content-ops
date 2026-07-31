@@ -28,15 +28,15 @@
   .cal-event-rich .acct { font-size: 11.5px; font-weight: 600; opacity: .85; }
   .fc-daygrid-event { border: none !important; background: transparent !important; }
   .fc-timegrid-event, .fc-daygrid-event { padding: 0 !important; }
-  .preview-strip { display: flex; gap: 6px; overflow-x: auto; padding: 2px 0 6px; }
+  .preview-strip { display: flex; gap: 8px; overflow-x: auto; padding: 2px 0 8px; }
   .preview-strip img {
-    width: 72px; height: 72px; object-fit: cover; border-radius: 8px;
+    width: 150px; height: 150px; object-fit: cover; border-radius: 10px;
     border: 1px solid var(--border); flex-shrink: 0; background: var(--bg); cursor: pointer;
   }
   #preview-lightbox { border: none; background: transparent; padding: 0; max-width: 92vw; max-height: 92vh; }
   #preview-lightbox::backdrop { background: rgba(0,0,0,.8); }
   #preview-lightbox img { max-width: 92vw; max-height: 92vh; border-radius: 10px; display: block; cursor: pointer; }
-  #event-modal-caption { min-height: 160px; }
+  #event-modal-caption { min-height: 160px; resize: vertical; max-width: 100%; box-sizing: border-box; }
 </style>
 <div class="calendar-wide">
 <h2>Content calendar</h2>
