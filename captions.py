@@ -8,9 +8,11 @@ error asking to set one up; nothing else in the app depends on this.
 """
 
 import base64
+import io
 import mimetypes
 
 import requests
+from PIL import Image
 
 API_URL = "https://api.anthropic.com/v1/messages"
 MODEL = "claude-sonnet-5"
@@ -19,21 +21,54 @@ MAX_TOKENS = 600
 
 SUPPORTED_MEDIA_TYPES = ("image/jpeg", "image/png", "image/gif", "image/webp")
 
+# Claude's vision API rejects any single image once its *base64-encoded*
+# size passes 10MB. A carousel slide exported as a high-res PNG can easily
+# blow past that on its own (base64 also inflates size by ~33% on top of
+# the original file). Rather than let that surface as a cryptic API error,
+# every photo gets resized/re-compressed to a safe size before it's ever
+# sent — this also keeps token usage (and $ cost) down, since Claude gets
+# no benefit from anything sharper than ~1568px on the long edge anyway.
+MAX_EDGE_PX = 1568
+JPEG_QUALITY = 85
+
 
 class CaptionError(Exception):
     pass
 
 
+def _prepare_image_bytes(data):
+    """Resizes/re-compresses one photo to a safe size for Claude's vision
+    API, always re-encoding as JPEG (simplest way to reliably shrink a
+    file, and Claude doesn't need lossless quality just to read a slide).
+    Falls back to the original bytes untouched if Pillow can't open it for
+    some reason — the API call itself will then surface a clear enough
+    error instead of this failing silently."""
+    try:
+        img = Image.open(io.BytesIO(data))
+        img = img.convert("RGB")
+        if max(img.size) > MAX_EDGE_PX:
+            img.thumbnail((MAX_EDGE_PX, MAX_EDGE_PX), Image.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=JPEG_QUALITY)
+        return buf.getvalue(), "image/jpeg"
+    except Exception:  # noqa: BLE001 - a weird/corrupt image must never crash caption generation
+        return data, None
+
+
 def _image_block(filename, data):
-    media_type = mimetypes.guess_type(filename)[0] or "image/jpeg"
-    if media_type not in SUPPORTED_MEDIA_TYPES:
-        media_type = "image/jpeg"
+    resized, forced_media_type = _prepare_image_bytes(data)
+    if forced_media_type:
+        media_type = forced_media_type
+    else:
+        media_type = mimetypes.guess_type(filename)[0] or "image/jpeg"
+        if media_type not in SUPPORTED_MEDIA_TYPES:
+            media_type = "image/jpeg"
     return {
         "type": "image",
         "source": {
             "type": "base64",
             "media_type": media_type,
-            "data": base64.b64encode(data).decode("ascii"),
+            "data": base64.b64encode(resized).decode("ascii"),
         },
     }
 
