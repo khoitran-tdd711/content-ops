@@ -4,6 +4,27 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/fullcalendar/6.1.11/index.global.min.js"></script>
 {% endblock %}
 {% block content %}
+<style>
+  .cal-event-compact {
+    display: flex; align-items: center; gap: 4px; padding: 1px 5px;
+    border-radius: 5px; overflow: hidden; line-height: 1.3;
+  }
+  .cal-event-compact .txt {
+    font-size: 11px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .cal-event-rich {
+    display: block; padding: 7px 10px; border-radius: 10px; overflow: hidden;
+    border-left: 3px solid rgba(255,255,255,.55);
+  }
+  .cal-event-rich .proj {
+    font-family: 'Sora', sans-serif; font-weight: 700; font-size: 13px; line-height: 1.3;
+    margin-bottom: 2px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .cal-event-rich .acct { font-size: 11.5px; font-weight: 600; opacity: .85; }
+  .fc-daygrid-event { border: none !important; background: transparent !important; }
+  .fc-timegrid-event, .fc-daygrid-event { padding: 0 !important; }
+</style>
 <div class="calendar-wide">
 <h2>Content calendar</h2>
 <p class="muted">
@@ -61,6 +82,12 @@ document.addEventListener('DOMContentLoaded', function () {
     return Array.from(filterBoxes).filter(cb => cb.checked).map(cb => cb.value);
   }
 
+  function escapeHtml(s) {
+    return (s || '').replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
   const calendar = new FullCalendar.Calendar(calendarEl, {
     initialView: 'dayGridMonth',
     height: 'auto',
@@ -79,10 +106,34 @@ document.addEventListener('DOMContentLoaded', function () {
         })
         .catch(failureCallback);
     },
+    eventContent: function (arg) {
+      const props = arg.event.extendedProps;
+      const bg = arg.event.backgroundColor || '#6B7280';
+      const fg = arg.event.textColor || '#fff';
+      const title = props.projectTitle || arg.event.title;
+      const account = props.accountLabel || '';
+
+      if (arg.view.type === 'dayGridMonth') {
+        return {
+          html:
+            '<div class="cal-event-compact" style="background:' + bg + ';color:' + fg + '">' +
+              '<span class="txt">' + escapeHtml(title) + '</span>' +
+            '</div>'
+        };
+      }
+      return {
+        html:
+          '<div class="cal-event-rich" style="background:' + bg + ';color:' + fg + '">' +
+            '<div class="proj">' + escapeHtml(title) + '</div>' +
+            (account ? '<div class="acct">' + escapeHtml(account) + '</div>' : '') +
+          '</div>'
+      };
+    },
     eventClick: function (info) {
       info.jsEvent.preventDefault();
       const props = info.event.extendedProps;
-      document.getElementById('event-modal-title').textContent = info.event.title;
+      const label = (props.projectTitle || info.event.title) + (props.accountLabel ? ' — ' + props.accountLabel : '');
+      document.getElementById('event-modal-title').textContent = label;
       document.getElementById('event-modal-datetime').value = props.scheduledAt || (info.event.startStr.slice(0, 10) + 'T12:00');
       document.getElementById('event-modal-caption').value = props.caption || '';
       document.getElementById('event-modal-modify').href = info.event.url;
