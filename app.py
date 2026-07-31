@@ -886,6 +886,24 @@ def register_routes(app):
             flash(f"Something went wrong scheduling this post: {e}", "error")
         return redirect(url_for("calendar_view"))
 
+    @app.route("/orders/<int:order_id>/media-preview")
+    @login_required
+    def order_media_preview(order_id):
+        """Powers the thumbnail preview in the Calendar's publish popup —
+        runs the exact same Drive link -> image URLs logic used for the
+        real publish (expand_drive_links), just without actually sending
+        anything to OneUp. So what you see here is what will go out."""
+        order = Order.query.get_or_404(order_id)
+        if not order.drive_link_list:
+            return {"images": [], "error": "No Drive link set yet for this task."}
+        try:
+            image_urls = expand_drive_links(order)
+        except drive.DriveError as e:
+            return {"images": [], "error": str(e)}
+        except Exception as e:  # noqa: BLE001 - a preview must never 500
+            return {"images": [], "error": f"Couldn't load a preview: {e}"}
+        return {"images": image_urls}
+
     @app.route("/orders/<int:order_id>/mark-published", methods=["POST"])
     @boss_required
     def order_mark_published(order_id):
