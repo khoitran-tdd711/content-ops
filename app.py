@@ -520,7 +520,7 @@ def register_routes(app):
             try:
                 if project["id"] not in zip_cache:
                     zip_cache[project["id"]] = drive.find_all_zips(service, project["id"])
-                match = drive.find_project_zip(zip_cache[project["id"]], o.title, o.language)
+                match = drive.find_project_zip(zip_cache[project["id"]], o.language)
             except drive.DriveError as e:
                 skipped.append({"order_id": o.id, "title": o.title, "reason": str(e)})
                 continue
