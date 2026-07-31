@@ -28,6 +28,11 @@
   .cal-event-rich .acct { font-size: 11.5px; font-weight: 600; opacity: .85; }
   .fc-daygrid-event { border: none !important; background: transparent !important; }
   .fc-timegrid-event, .fc-daygrid-event { padding: 0 !important; }
+  .preview-strip { display: flex; gap: 6px; overflow-x: auto; padding: 2px 0 6px; }
+  .preview-strip img {
+    width: 72px; height: 72px; object-fit: cover; border-radius: 8px;
+    border: 1px solid var(--border); flex-shrink: 0; background: var(--bg);
+  }
 </style>
 <div class="calendar-wide">
 <h2>Content calendar</h2>
@@ -60,6 +65,7 @@
 <dialog id="event-modal" style="border:none;border-radius:20px;padding:0;width:420px;max-width:90vw">
   <div class="card" style="margin:0;border:none">
     <h3 id="event-modal-title" style="margin:0 0 14px"></h3>
+    <div id="event-modal-preview"></div>
     <form id="event-modal-publish-form" method="post">
       <label>Publish date &amp; time</label>
       <input type="datetime-local" id="event-modal-datetime" name="scheduled_at" required>
@@ -100,6 +106,38 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   }
 
+  // Shows what will actually get sent to OneUp — same Drive link handling
+  // as the real publish, just read-only. Zips can take a few seconds to
+  // download and unpack, so this shows a loading state while it works, and
+  // ignores its own result if the boss has already clicked into a
+  // different task by the time it comes back.
+  let previewRequestId = 0;
+  function loadMediaPreview(orderId) {
+    const wrap = document.getElementById('event-modal-preview');
+    const thisRequest = ++previewRequestId;
+    wrap.innerHTML = '<p class="muted" style="margin:0 0 10px;font-size:12px">Loading preview…</p>';
+    fetch('/orders/' + orderId + '/media-preview')
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (thisRequest !== previewRequestId) return;
+        if (data.error) {
+          wrap.innerHTML = '<p class="muted" style="margin:0 0 10px;font-size:12px">' + escapeHtml(data.error) + '</p>';
+          return;
+        }
+        if (!data.images.length) {
+          wrap.innerHTML = '<p class="muted" style="margin:0 0 10px;font-size:12px">No preview available.</p>';
+          return;
+        }
+        wrap.innerHTML = '<div class="preview-strip">' +
+          data.images.map(function (u) { return '<img src="' + u + '" loading="lazy">'; }).join('') +
+          '</div>';
+      })
+      .catch(function () {
+        if (thisRequest !== previewRequestId) return;
+        wrap.innerHTML = '<p class="muted" style="margin:0 0 10px;font-size:12px">Couldn\'t load a preview.</p>';
+      });
+  }
+
   const calendar = new FullCalendar.Calendar(calendarEl, {
     initialView: 'dayGridMonth',
     height: 'auto',
@@ -119,11 +157,16 @@ document.addEventListener('DOMContentLoaded', function () {
         })
         .catch(failureCallback);
     },
-    // Same-project cards stack together (e.g. every language of "Zara and
-    // why it succeed" one after another) instead of being interleaved
-    // purely by time, so a busy day reads as groups rather than a shuffled
-    // list.
+    // Chronological first (13:30 before 18:00 before 21:00), then grouped
+    // by project name as a tie-break. Since every language of the same
+    // project is normally scheduled at the same time, this reads as both
+    // "in time order" and "same project together" at once — the earlier
+    // version sorted by project name first, which scrambled the time order.
     eventOrder: function (a, b) {
+      const sa = a.extendedProps.scheduledAt || '';
+      const sb = b.extendedProps.scheduledAt || '';
+      if (sa < sb) return -1;
+      if (sa > sb) return 1;
       const ta = (a.extendedProps.projectTitle || a.title || '').toLowerCase();
       const tb = (b.extendedProps.projectTitle || b.title || '').toLowerCase();
       if (ta < tb) return -1;
@@ -179,6 +222,7 @@ document.addEventListener('DOMContentLoaded', function () {
       document.getElementById('event-modal-caption').value = props.caption || '';
       document.getElementById('event-modal-modify').href = info.event.url;
       document.getElementById('event-modal-publish-form').action = '/orders/' + info.event.id + '/publish-now';
+      loadMediaPreview(info.event.id);
       modal.showModal();
     },
     eventDrop: function (info) {
