@@ -472,10 +472,16 @@ def register_routes(app):
         project folder is a .zip per language: '<Title>.zip' for the base
         language and '<Title>-<code>.zip' for the rest (see
         drive.LANGUAGE_ZIP_SUFFIX). Never overwrites a Drive link that's
-        already set — only fills tasks that are still blank."""
+        already set — only fills tasks that are still blank. Scoped to one
+        status at a time (picked on the Board), or every status if left
+        blank/"all"."""
         sa_json = Setting.get("google_service_account_json")
         if not sa_json:
             return {"error": "Set up the Google service account in Settings first."}, 400
+
+        status_filter = (request.form.get("status") or "").strip()
+        if status_filter and status_filter not in BOARD_STATUSES:
+            return {"error": f"'{status_filter}' isn't a valid status to scan."}, 400
 
         mother_raw = request.form.get("mother_folder") or Setting.get("drive_projects_root")
         mother_folder_id = drive.resolve_folder_id(mother_raw)
@@ -495,11 +501,14 @@ def register_routes(app):
         for f in project_folders:
             project_map.setdefault(drive.normalize_name(f["name"]), f)
 
-        orders = Order.query.filter(
+        order_filters = [
             Order.title.isnot(None),
             Order.title != "",
             db.or_(Order.drive_links.is_(None), Order.drive_links == ""),
-        ).all()
+        ]
+        if status_filter:
+            order_filters.append(Order.status == status_filter)
+        orders = Order.query.filter(*order_filters).all()
 
         zip_cache = {}  # project folder id -> list of zip file dicts found inside it
         filled, skipped = [], []
@@ -539,6 +548,7 @@ def register_routes(app):
 
         db.session.commit()
         return {
+            "status_scanned": status_filter or "all",
             "filled": filled,
             "filled_count": len(filled),
             "skipped": skipped,
