@@ -36,6 +36,7 @@
   #preview-lightbox { border: none; background: transparent; padding: 0; max-width: 92vw; max-height: 92vh; }
   #preview-lightbox::backdrop { background: rgba(0,0,0,.8); }
   #preview-lightbox img { max-width: 92vw; max-height: 92vh; border-radius: 10px; display: block; cursor: pointer; }
+  #event-modal-caption { min-height: 160px; }
 </style>
 <div class="calendar-wide">
 <h2>Content calendar</h2>
@@ -65,7 +66,7 @@
 <div id="calendar"></div>
 </div>
 
-<dialog id="event-modal" style="border:none;border-radius:20px;padding:0;width:420px;max-width:90vw">
+<dialog id="event-modal" style="border:none;border-radius:20px;padding:0;width:640px;max-width:92vw;max-height:88vh;overflow-y:auto">
   <div class="card" style="margin:0;border:none">
     <h3 id="event-modal-title" style="margin:0 0 14px"></h3>
     <div id="event-modal-preview"></div>
@@ -75,6 +76,8 @@
 
       <label>Description</label>
       <textarea id="event-modal-caption" name="caption" placeholder="Caption for this post"></textarea>
+
+      <p id="event-modal-status" class="muted" style="margin:8px 0 0;font-size:12px"></p>
 
       <div style="display:flex;gap:10px;margin-top:14px">
         <a id="event-modal-modify" class="btn secondary" style="flex:1;text-align:center">To modify</a>
@@ -251,6 +254,44 @@ document.addEventListener('DOMContentLoaded', function () {
     document.getElementById('preview-lightbox-img').src = src;
     lightbox.showModal();
   };
+
+  // Publish via fetch instead of a normal form submit, so a successful
+  // publish just closes the popup and refreshes the events in place —
+  // no full page reload, which used to bounce the boss back to month view
+  // and clear whatever they'd typed into the search box.
+  document.getElementById('event-modal-publish-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    const form = e.target;
+    const statusEl = document.getElementById('event-modal-status');
+    const btn = form.querySelector('button[type="submit"]');
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Publishing…';
+    statusEl.textContent = '';
+    fetch(form.action, {
+      method: 'POST',
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
+      body: new FormData(form),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        btn.disabled = false;
+        btn.textContent = originalText;
+        if (!data.ok) {
+          statusEl.style.color = '#DC4C4C';
+          statusEl.textContent = data.error || 'Something went wrong.';
+          return;
+        }
+        modal.close();
+        calendar.refetchEvents();
+      })
+      .catch(function () {
+        btn.disabled = false;
+        btn.textContent = originalText;
+        statusEl.style.color = '#DC4C4C';
+        statusEl.textContent = 'Network error — try again.';
+      });
+  });
 
   filterBoxes.forEach(function (cb) {
     cb.addEventListener('change', function () { calendar.refetchEvents(); });
