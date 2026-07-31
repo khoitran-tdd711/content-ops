@@ -29,6 +29,22 @@ IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp", ".gif")
 MAX_ZIP_BYTES = 60 * 1024 * 1024  # 60MB safety cap (Render free tier has limited RAM)
 FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
 
+# Zip filename suffix convention used inside each project's Drive folder:
+# '<Title>.zip' for the base/English version, '<Title>-<code>.zip' for every
+# other language. None means "no suffix" (the base language).
+LANGUAGE_ZIP_SUFFIX = {
+    "English": None,
+    "Spanish": "es",
+    "Italian": "it",
+    "French": "fr",
+    "Dutch": "nl",
+    "German": "de",
+    "Polish": "pl",
+    "Portuguese": "pt",
+    "Romanian": "ro",
+    "Greek": "el",
+}
+
 
 class DriveError(Exception):
     pass
@@ -163,6 +179,89 @@ def find_by_name(service, name, root_folder_id=None):
         matches = _search(q)
         if matches:
             return matches[0]
+    return None
+
+
+def normalize_name(name):
+    """Loosens name comparisons across trailing spaces, hyphens vs. spaces
+    vs. underscores, and case — so 'Zara-and-why-it-succeed' and
+    'Zara and why it succeed ' are treated as the same name."""
+    return re.sub(r"[-_\s]+", " ", (name or "")).strip().lower()
+
+
+def list_child_folders(service, parent_id):
+    """Every direct sub-folder of parent_id (paginated) — used to match the
+    mother project folder against each task's title."""
+    folders, page_token = [], None
+    while True:
+        try:
+            resp = (
+                service.files()
+                .list(
+                    q=f"'{parent_id}' in parents and trashed = false and mimeType = '{FOLDER_MIME_TYPE}'",
+                    fields="nextPageToken, files(id,name)",
+                    pageSize=1000,
+                    pageToken=page_token,
+                    supportsAllDrives=True,
+                    includeItemsFromAllDrives=True,
+                )
+                .execute()
+            )
+        except Exception as e:  # noqa: BLE001
+            raise DriveError(f"Couldn't list folders under that Drive folder: {e}")
+        folders.extend(resp.get("files", []))
+        page_token = resp.get("nextPageToken")
+        if not page_token:
+            break
+    return folders
+
+
+def find_all_zips(service, folder_id, max_depth=4):
+    """Recursively walks folder_id's sub-folders and returns every zip file
+    found anywhere inside, as dicts with id/name. Depth-limited so a
+    mis-shared huge Drive tree can't spin forever."""
+    zips = []
+    queue = [(folder_id, 0)]
+    while queue:
+        fid, depth = queue.pop(0)
+        try:
+            resp = (
+                service.files()
+                .list(
+                    q=f"'{fid}' in parents and trashed = false",
+                    fields="files(id,name,mimeType)",
+                    pageSize=1000,
+                    supportsAllDrives=True,
+                    includeItemsFromAllDrives=True,
+                )
+                .execute()
+            )
+        except Exception as e:  # noqa: BLE001
+            raise DriveError(f"Couldn't list a Drive folder while searching for zips: {e}")
+        for f in resp.get("files", []):
+            if f.get("mimeType") == FOLDER_MIME_TYPE:
+                if depth < max_depth:
+                    queue.append((f["id"], depth + 1))
+            elif is_zip(f):
+                zips.append(f)
+    return zips
+
+
+def find_project_zip(zips, title, language):
+    """Given every zip found inside one project's Drive folder (see
+    find_all_zips) plus a task's title/language, returns the one zip that
+    matches the naming convention — '<Title>.zip' for the base language,
+    '<Title>-<code>.zip' for others (see LANGUAGE_ZIP_SUFFIX). Returns None
+    if nothing matches."""
+    target = normalize_name(title)
+    code = LANGUAGE_ZIP_SUFFIX.get(language) if language else None
+    wanted = f"{target} {code}" if code else target
+    for f in zips:
+        stem = f["name"]
+        if stem.lower().endswith(".zip"):
+            stem = stem[:-4]
+        if normalize_name(stem) == wanted:
+            return f
     return None
 
 
