@@ -572,6 +572,78 @@ def register_routes(app):
             "skipped_count": len(skipped),
         }
 
+    @app.route("/orders/find-new-drive-projects")
+    @boss_required
+    def orders_find_new_drive_projects():
+        """Scans the mother Drive folder for project folders that don't have
+        a matching Board task yet at all — the reverse direction of 'Auto-fill
+        Drive links'. Read-only: it only reads Drive and reads existing task
+        titles, and never modifies, links, or otherwise touches any task
+        that's already on the Board, correctly linked or not."""
+        sa_json = Setting.get("google_service_account_json")
+        if not sa_json:
+            return {"error": "Set up the Google service account in Settings first."}, 400
+
+        mother_folder_id = drive.resolve_folder_id(Setting.get("drive_projects_root"))
+        if not mother_folder_id:
+            return {
+                "error": "No mother folder set. Paste its Drive link into Settings → "
+                "'Project folders root' first."
+            }, 400
+
+        try:
+            service = drive.get_service(sa_json)
+            project_folders = drive.list_child_folders(service, mother_folder_id)
+        except drive.DriveError as e:
+            return {"error": str(e)}, 400
+
+        existing_titles = {
+            drive.normalize_name(t)
+            for (t,) in db.session.query(Order.title)
+            .filter(Order.title.isnot(None), Order.title != "")
+            .distinct()
+        }
+
+        new_projects = [
+            {
+                "name": f["name"],
+                "folder_id": f["id"],
+                "link": f"https://drive.google.com/drive/folders/{f['id']}",
+            }
+            for f in project_folders
+            if drive.normalize_name(f["name"]) not in existing_titles
+        ]
+        new_projects.sort(key=lambda p: p["name"].lower())
+
+        return {"new_projects": new_projects, "scanned_folders": len(project_folders)}
+
+    @app.route("/orders/quick-add-from-drive", methods=["POST"])
+    @boss_required
+    def orders_quick_add_from_drive():
+        """Creates a bare Board task from a flagged new Drive project folder
+        — title only, plus an optional language/platform. No Drive link is
+        set yet (the project folder itself isn't the right link — the real
+        link is one specific language's zip inside it); run 'Auto-fill
+        Drive links' afterward, or duplicate this row per language."""
+        title = request.form.get("title", "").strip()
+        if not title:
+            return {"ok": False, "error": "Missing title."}, 400
+        language = request.form.get("language") or None
+        platform = request.form.get("platform") or "instagram"
+        order = Order(
+            platform=platform,
+            language=language,
+            content_type="carousel",
+            quantity=1,
+            title=title,
+            date_ordered=date.today(),
+            created_by_id=g.user.id,
+            status="ordered",
+        )
+        db.session.add(order)
+        db.session.commit()
+        return {"ok": True, "order_id": order.id}
+
     @app.route("/orders/<int:order_id>/set-date", methods=["POST"])
     @boss_required
     def order_set_date(order_id):
