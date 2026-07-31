@@ -134,6 +134,7 @@
     <input type="datetime-local" id="bulk-date-input" style="width:190px;margin:0">
     <button type="button" class="btn" style="padding:4px 12px" onclick="submitBulk('date')">Apply pub date</button>
     <button type="button" class="btn danger" style="padding:4px 12px" onclick="submitBulk('delete')">Delete selected</button>
+    <button type="button" class="btn secondary" style="padding:4px 12px" id="btn-autofill-selected">Auto-fill Drive links (selected)</button>
   </div>
   <form id="bulk-form" method="post" style="display:none"></form>
   {% endif %}
@@ -571,70 +572,90 @@ document.getElementById('note-form').addEventListener('submit', function (e) {
     form.submit();
   };
 
-  const autofillBtn = document.getElementById('btn-autofill-drive-links');
-  if (autofillBtn) {
-    const modal = document.getElementById('autofill-drive-modal');
-    const status = document.getElementById('autofill-status');
-    const filledList = document.getElementById('autofill-filled-list');
-    const skippedWrap = document.getElementById('autofill-skipped-wrap');
-    const skippedList = document.getElementById('autofill-skipped-list');
-    let didFill = false;
+  // Shared by both "Auto-fill Drive links" entry points — the top button
+  // (scans a whole status, or every status) and the bulk-bar button (scans
+  // only the tasks checked on the Board). Scoping to just-checked rows is
+  // the fast path: skipping the full status/Drive scan for everything
+  // that's already fine, instead of re-scanning the whole board for a
+  // couple of brand-new tasks.
+  const autofillModal = document.getElementById('autofill-drive-modal');
+  const autofillStatusEl = document.getElementById('autofill-status');
+  const autofillFilledList = document.getElementById('autofill-filled-list');
+  const autofillSkippedWrap = document.getElementById('autofill-skipped-wrap');
+  const autofillSkippedList = document.getElementById('autofill-skipped-list');
+  let autofillDidFill = false;
 
-    document.getElementById('autofill-close').addEventListener('click', function () {
-      modal.close();
-      if (didFill) location.reload();
-    });
+  document.getElementById('autofill-close').addEventListener('click', function () {
+    autofillModal.close();
+    if (autofillDidFill) location.reload();
+  });
 
-    autofillBtn.addEventListener('click', function () {
-      filledList.innerHTML = '';
-      skippedList.innerHTML = '';
-      skippedWrap.style.display = 'none';
-      didFill = false;
-      const statusSelect = document.getElementById('autofill-status-select');
-      const statusValue = statusSelect ? statusSelect.value : '';
-      const statusLabel = statusValue
-        ? (statusSelect.options[statusSelect.selectedIndex].textContent)
-        : 'all statuses';
-      status.textContent = 'Matching Drive folders for ' + statusLabel + '… this can take a little while.';
-      modal.showModal();
+  function runAutoFill(bodyStr, scanLabel) {
+    autofillFilledList.innerHTML = '';
+    autofillSkippedList.innerHTML = '';
+    autofillSkippedWrap.style.display = 'none';
+    autofillDidFill = false;
+    autofillStatusEl.textContent = 'Matching Drive folders for ' + scanLabel + '… this can take a little while.';
+    autofillModal.showModal();
 
-      fetch("{{ url_for('orders_auto_fill_drive_links') }}", {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: 'status=' + encodeURIComponent(statusValue)
-      })
-        .then(function (r) { return r.json(); })
-        .then(function (data) {
-          if (data.error) {
-            status.textContent = 'Error: ' + data.error;
-            return;
-          }
-          didFill = data.filled_count > 0;
-          status.textContent = 'Scanned "' + statusLabel + '": filled ' + data.filled_count +
-            ' task(s), ' + data.skipped_count + ' not matched.';
+    fetch("{{ url_for('orders_auto_fill_drive_links') }}", {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: bodyStr
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.error) {
+          autofillStatusEl.textContent = 'Error: ' + data.error;
+          return;
+        }
+        autofillDidFill = data.filled_count > 0;
+        autofillStatusEl.textContent = 'Scanned ' + scanLabel + ': filled ' + data.filled_count +
+          ' task(s), ' + data.skipped_count + ' not matched.';
 
-          data.filled.forEach(function (f) {
+        data.filled.forEach(function (f) {
+          const row = document.createElement('div');
+          row.className = 'autofill-row';
+          row.innerHTML =
+            '<div class="t">' + f.title + (f.language ? ' — ' + f.language : '') + '</div>' +
+            '<div class="m">Matched: <a href="' + f.link + '" target="_blank">' + f.matched_name + '</a></div>';
+          autofillFilledList.appendChild(row);
+        });
+
+        if (data.skipped.length) {
+          autofillSkippedWrap.style.display = 'block';
+          data.skipped.forEach(function (s) {
             const row = document.createElement('div');
             row.className = 'autofill-row';
             row.innerHTML =
-              '<div class="t">' + f.title + (f.language ? ' — ' + f.language : '') + '</div>' +
-              '<div class="m">Matched: <a href="' + f.link + '" target="_blank">' + f.matched_name + '</a></div>';
-            filledList.appendChild(row);
+              '<div class="t">' + s.title + '</div>' +
+              '<div class="m">' + s.reason + '</div>';
+            autofillSkippedList.appendChild(row);
           });
+        }
+      })
+      .catch(function (e) { autofillStatusEl.textContent = 'Error: ' + e; });
+  }
 
-          if (data.skipped.length) {
-            skippedWrap.style.display = 'block';
-            data.skipped.forEach(function (s) {
-              const row = document.createElement('div');
-              row.className = 'autofill-row';
-              row.innerHTML =
-                '<div class="t">' + s.title + '</div>' +
-                '<div class="m">' + s.reason + '</div>';
-              skippedList.appendChild(row);
-            });
-          }
-        })
-        .catch(function (e) { status.textContent = 'Error: ' + e; });
+  const autofillBtn = document.getElementById('btn-autofill-drive-links');
+  if (autofillBtn) {
+    autofillBtn.addEventListener('click', function () {
+      const statusSelect = document.getElementById('autofill-status-select');
+      const statusValue = statusSelect ? statusSelect.value : '';
+      const statusLabel = statusValue
+        ? ('"' + statusSelect.options[statusSelect.selectedIndex].textContent + '"')
+        : 'all statuses';
+      runAutoFill('status=' + encodeURIComponent(statusValue), statusLabel);
+    });
+  }
+
+  const autofillSelectedBtn = document.getElementById('btn-autofill-selected');
+  if (autofillSelectedBtn) {
+    autofillSelectedBtn.addEventListener('click', function () {
+      const ids = selectedIds();
+      if (!ids.length) return;
+      const body = ids.map(function (id) { return 'order_ids=' + encodeURIComponent(id); }).join('&');
+      runAutoFill(body, ids.length + ' selected task(s)');
     });
   }
 
