@@ -37,13 +37,15 @@
     {% for p in platforms %}
       <label>{{ p|title }} — OneUp social_network_id (default account)</label>
       <input type="text" name="social_id_{{ p }}" value="{{ mapping[p] or '' }}" placeholder="paste the account ID from the lookup above">
+      <label>{{ p|title }} — Nickname (shown on the Calendar, e.g. "Akka App")</label>
+      <input type="text" name="social_nickname_{{ p }}" value="{{ nickname_mapping[p] or '' }}" placeholder="e.g. Akka App">
     {% endfor %}
 
     <div class="section-title" style="margin-top:20px">Per-language accounts (optional overrides)</div>
     <p class="muted">
       If a language has its own dedicated account on a platform (e.g. akka.italy for Italian on
-      Instagram, or "Akka Spain" for Spanish on LinkedIn), paste its account ID in that cell.
-      Leave a cell blank to just use the platform's default account above for that language.
+      Instagram, or "Akka Spain" for Spanish on LinkedIn), paste its account ID and a nickname in
+      that cell. Leave a cell blank to just use the platform's default account above for that language.
     </p>
     <div style="overflow-x:auto">
     <table>
@@ -60,7 +62,9 @@
           {% for p in platforms %}
           <td>
             <input type="text" name="social_id_{{ p }}_{{ l }}" value="{{ language_mapping[p][l] or '' }}"
-                   style="width:150px;padding:4px 6px;margin:0" placeholder="—">
+                   style="width:150px;padding:4px 6px;margin:0 0 4px" placeholder="Account ID">
+            <input type="text" name="social_nickname_{{ p }}_{{ l }}" value="{{ language_nickname_mapping[p][l] or '' }}"
+                   style="width:150px;padding:4px 6px;margin:0" placeholder="Nickname">
           </td>
           {% endfor %}
         </tr>
@@ -70,21 +74,31 @@
     </div>
 
     <div class="section-title" style="margin-top:20px">
-      Google Drive (for .zip files)
+      Google Drive (for .zip files and folders)
       <button type="button" class="btn secondary" id="btn-test-drive" style="margin-left:8px;padding:2px 10px">Test connection</button>
     </div>
     <p class="muted">
-      This lets the app open a Drive .zip and send every photo inside it straight to OneUp,
-      instead of you having to paste individual photo links. It needs a Google service account
-      key (a JSON file from Google Cloud) — create one, then paste its full contents below.
-      After saving, click "Test connection" to see the service account's email address, then
-      share your Drive folders with that exact email (same as sharing a folder with a coworker).
+      This lets the app open a Drive .zip (or a folder with loose photos in it) and send every
+      photo straight to OneUp, instead of you having to paste individual photo links. It also
+      powers the Board's "Find Drive links" button, which searches Drive by task title and
+      suggests a match for you to accept. Needs a Google service account key (a JSON file from
+      Google Cloud) — create one, then paste its full contents below. After saving, click
+      "Test connection" to see the service account's email address, then share your Drive
+      folders with that exact email (same as sharing a folder with a coworker).
       Leave this blank if you'd rather keep pasting individual photo links — that still works.
     </p>
     <div id="drive-test-result" class="muted" style="margin-bottom:10px"></div>
     <label>Google service account key (paste the whole JSON file)</label>
     <textarea name="google_service_account_json" rows="6"
               placeholder='{"type": "service_account", "project_id": "...", ...}'>{{ google_service_account_json or '' }}</textarea>
+
+    <label>Project folders root (optional, recommended)</label>
+    <input type="text" name="drive_projects_root" value="{{ drive_projects_root or '' }}"
+           placeholder="Paste the Drive folder link that contains all your project folders">
+    <p class="muted" style="margin-top:-8px">
+      Scopes "Find Drive links" searches to inside this one folder, so matches are more accurate.
+      Leave blank to search all of Drive shared with the service account.
+    </p>
 
     <div style="margin-top:18px">
       <button class="btn" type="submit">Save settings</button>
