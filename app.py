@@ -921,7 +921,10 @@ def register_routes(app):
     def order_publish_now(order_id):
         """Confirm & Publish from the Calendar popup — takes the (possibly
         edited) date/time and description from that form, saves them, then
-        schedules straight through OneUp's API."""
+        schedules straight through OneUp's API. Responds with JSON when the
+        Calendar's JS posts it via fetch, so the page never reloads — that
+        used to bounce the boss back to month view and clear the search box
+        after every publish, even from Week view."""
         order = Order.query.get_or_404(order_id)
 
         try:
@@ -931,7 +934,10 @@ def register_routes(app):
                 order.due_date = order.scheduled_at.date()
             elif not order.scheduled_at:
                 if not order.due_date:
-                    flash("This task has no pub date set yet — set one on the Board or Calendar first.", "error")
+                    msg = "This task has no pub date set yet — set one on the Board or Calendar first."
+                    if wants_json():
+                        return {"ok": False, "error": msg}, 400
+                    flash(msg, "error")
                     return redirect(url_for("calendar_view"))
                 order.scheduled_at = datetime.combine(order.due_date, datetime.min.time().replace(hour=12))
 
@@ -942,12 +948,17 @@ def register_routes(app):
 
             api_key = get_oneup_api_key()
             if not api_key:
-                flash("OneUp isn't connected yet — add your API key in Settings first.", "error")
+                msg = "OneUp isn't connected yet — add your API key in Settings first."
+                if wants_json():
+                    return {"ok": False, "error": msg}, 400
+                flash(msg, "error")
                 return redirect(url_for("calendar_view"))
 
             success, message = publish_via_oneup(order)
             if success:
                 mailer.notify_status_change(order, f"Scheduled for {order.scheduled_at} via OneUp.")
+            if wants_json():
+                return {"ok": success, "error": None if success else message}
             flash(message, "success" if success else "error")
         except Exception as e:  # noqa: BLE001 - a boss publishing many posts a day should never see a raw 500
             db.session.rollback()
@@ -955,7 +966,10 @@ def register_routes(app):
             order.status = "failed"
             order.oneup_response = str(e)
             db.session.commit()
-            flash(f"Something went wrong scheduling this post: {e}", "error")
+            msg = f"Something went wrong scheduling this post: {e}"
+            if wants_json():
+                return {"ok": False, "error": msg}, 500
+            flash(msg, "error")
         return redirect(url_for("calendar_view"))
 
     @app.route("/orders/<int:order_id>/media-preview")
