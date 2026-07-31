@@ -6,6 +6,7 @@ import tempfile
 import zipfile
 from datetime import date, datetime
 from functools import wraps
+from zoneinfo import ZoneInfo
 
 from flask import (
     Flask,
@@ -43,6 +44,31 @@ from models import (
     User,
     db,
 )
+
+
+PARIS_TZ = ZoneInfo("Europe/Paris")
+
+
+def auto_advance_scheduled_posts():
+    """OneUp doesn't call us back to confirm a post actually went out, so
+    this is how 'Scheduled' becomes 'Published' on its own: anything
+    marked scheduled whose pub time has already passed gets flipped over.
+    Runs whenever the Calendar/Board is loaded and on the keep-alive ping
+    (every ~5 min), so it's never off by more than a few minutes.
+
+    scheduled_at is stored as a plain wall-clock time with no timezone
+    attached (whatever was typed into the date/time picker) — the team
+    schedules in Paris time, so 'now' is computed in Europe/Paris and its
+    timezone stripped before comparing, rather than comparing against the
+    server's own clock (which runs in UTC on Render). This also
+    automatically accounts for CET/CEST daylight saving changes."""
+    now_paris = datetime.now(PARIS_TZ).replace(tzinfo=None)
+    db.session.query(Order).filter(
+        Order.status == "scheduled",
+        Order.scheduled_at.isnot(None),
+        Order.scheduled_at <= now_paris,
+    ).update({"status": "published"}, synchronize_session=False)
+    db.session.commit()
 
 
 def wants_json():
@@ -179,6 +205,7 @@ def register_routes(app):
         Render's free web service and Neon's free database from going idle,
         so the next real click doesn't have to pay the wake-up cost."""
         db.session.execute(db.text("SELECT 1"))
+        auto_advance_scheduled_posts()
         return {"ok": True}
 
     @app.route("/")
@@ -190,6 +217,7 @@ def register_routes(app):
     @app.route("/api/orders.json")
     @login_required
     def orders_json():
+        auto_advance_scheduled_posts()
         orders = Order.query.all()
         events = []
         for o in orders:
@@ -393,6 +421,7 @@ def register_routes(app):
     @login_required
     def board_view():
         """Flat tracker of every order/carousel — the source of truth."""
+        auto_advance_scheduled_posts()
         q = request.args.get("q", "").strip()
         language = request.args.get("language", "").strip()
         platform = request.args.get("platform", "").strip()
