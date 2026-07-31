@@ -15,6 +15,10 @@
   .board-menu .menu-pop form:last-child { margin-bottom: 0; }
   .board-menu .menu-pop button { width: 100%; text-align: left; }
   td.actions-cell { position: relative; }
+  /* "Open" next to a saved Drive link only shows up on hover, instead of
+     always sitting there next to the input looking like a stray button. */
+  .drive-open-link { opacity: 0; transition: opacity .12s; }
+  td.drive-link-cell:hover .drive-open-link { opacity: 1; }
   .board-wide {
     margin-left: calc(50% - 50vw);
     margin-right: calc(50% - 50vw);
@@ -224,7 +228,7 @@
             {{ o.feedback_note or '' }}
           {% endif %}
         </td>
-        <td>
+        <td class="drive-link-cell">
           {% if current_user.is_boss %}
           <form method="post" action="{{ url_for('order_set_drive_link', order_id=o.id) }}"
                 onsubmit="return ajaxSubmitRow(this)" data-order-id="{{ o.id }}"
@@ -233,7 +237,7 @@
                    style="width:150px;padding:4px 6px;margin:0">
             <button class="btn" type="submit" style="padding:4px 10px">Save</button>
           </form>
-          <div id="drive-open-{{ o.id }}" style="margin-top:4px{{ '' if o.drive_link_list else ';display:none' }}">
+          <div id="drive-open-{{ o.id }}" class="drive-open-link" style="margin-top:4px{{ '' if o.drive_link_list else ';display:none' }}">
             <a href="{{ o.drive_link_list[0] if o.drive_link_list else '#' }}" target="_blank">Open</a>
           </div>
           {% else %}
