@@ -130,3 +130,64 @@ def schedule_image_post(
         raise OneUpError(payload.get("message", f"OneUp API error (HTTP {r.status_code})"))
 
     return payload
+
+
+def get_scheduled_posts(api_key, start=0):
+    """Lists posts currently sitting in OneUp's scheduled queue (up to 50 at
+    a time). scheduleimagepost's own response never includes the post_id it
+    just created — this is how we look it up right afterward, by matching
+    on content + scheduled time, so we can store it and later cancel/redo
+    that exact post if its date gets dragged around on the Calendar."""
+    try:
+        r = requests.get(
+            f"{BASE_URL}/getscheduledposts", params={"apiKey": api_key, "start": start}, timeout=TIMEOUT
+        )
+        r.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        raise OneUpError(f"Couldn't reach OneUp: {e}")
+    try:
+        payload = r.json()
+    except ValueError:
+        raise OneUpError(f"Non-JSON response from OneUp (HTTP {r.status_code}): {r.text[:300]}")
+    if payload.get("error"):
+        raise OneUpError(payload.get("message", "OneUp API error"))
+    return payload.get("data", [])
+
+
+def find_scheduled_post_id(api_key, content, scheduled_date_time):
+    """Best-effort lookup of the post_id OneUp assigned to a just-scheduled
+    post — matches on exact caption text and scheduled minute (OneUp's
+    date_time includes seconds we don't track). Only checks the first page
+    of the queue; if a match isn't found there (very large queue, or OneUp
+    hasn't indexed it yet), returns None rather than guessing wrong — the
+    caller just won't be able to auto-resync this particular post's time
+    later, which is a safe degrade, not a crash."""
+    try:
+        posts = get_scheduled_posts(api_key)
+    except OneUpError:
+        return None
+    wanted_prefix = scheduled_date_time  # 'YYYY-MM-DD HH:MM'
+    for p in posts:
+        if p.get("content") == (content or "") and str(p.get("date_time", "")).startswith(wanted_prefix):
+            return p.get("post_id")
+    return None
+
+
+def delete_scheduled_post(api_key, post_id):
+    """Cancels a post still sitting in OneUp's scheduled queue. Used when a
+    task's pub date gets dragged to a new day/time on the Calendar — OneUp
+    has no "just change the time" endpoint for a post that's already
+    scheduled, so the fix is delete-then-reschedule."""
+    try:
+        r = requests.post(
+            f"{BASE_URL}/deletescheduledpost", data={"apiKey": api_key, "post_id": post_id}, timeout=TIMEOUT
+        )
+    except requests.exceptions.RequestException as e:
+        raise OneUpError(f"Couldn't reach OneUp: {e}")
+    try:
+        payload = r.json()
+    except ValueError:
+        raise OneUpError(f"Non-JSON response from OneUp (HTTP {r.status_code}): {r.text[:300]}")
+    if r.status_code >= 400 or payload.get("error"):
+        raise OneUpError(payload.get("message", f"OneUp API error (HTTP {r.status_code})"))
+    return payload
