@@ -298,33 +298,46 @@ def register_routes(app):
     @boss_required
     def order_import():
         """Create a new task/order — used by the "+ New task" modal on the
-        Board. Pub date is optional; leave it blank and set it later."""
+        Board. Pub date is optional; leave it blank and set it later.
+
+        The language field also accepts the special value "__all__" ("All
+        available languages" in the dropdown) — instead of one task with no
+        language set, this creates one task per language in LANGUAGES, all
+        identical otherwise (same title/platform/pub date/etc.), so the boss
+        doesn't have to create one task then duplicate it N times and set
+        each language by hand."""
         producers = User.query.filter_by(role="producer").order_by(User.name).all()
         if request.method == "POST":
             already_published = request.form.get("already_published") == "yes"
             producer_id = request.form.get("producer_id") or None
-            language = request.form.get("language") or None
+            language_input = request.form.get("language") or None
+            languages_to_create = LANGUAGES if language_input == "__all__" else [language_input]
             platform = request.form.get("platform") or "instagram"
             scheduled_str = request.form.get("scheduled_at")
             scheduled_at = datetime.strptime(scheduled_str, "%Y-%m-%dT%H:%M") if scheduled_str else None
-            order = Order(
-                platform=platform,
-                language=language,
-                content_type=request.form.get("content_type", "carousel"),
-                quantity=int(request.form.get("quantity", 1) or 1),
-                title=request.form.get("title", "").strip(),
-                caption=request.form.get("caption", "").strip(),
-                due_date=scheduled_at.date() if scheduled_at else None,
-                scheduled_at=scheduled_at,
-                date_ordered=date.today(),
-                producer_id=int(producer_id) if producer_id else None,
-                created_by_id=g.user.id,
-                drive_links=request.form.get("drive_links", "").strip(),
-                status="published" if already_published else "ordered",
-            )
-            db.session.add(order)
+
+            for language in languages_to_create:
+                order = Order(
+                    platform=platform,
+                    language=language,
+                    content_type=request.form.get("content_type", "carousel"),
+                    quantity=int(request.form.get("quantity", 1) or 1),
+                    title=request.form.get("title", "").strip(),
+                    caption=request.form.get("caption", "").strip(),
+                    due_date=scheduled_at.date() if scheduled_at else None,
+                    scheduled_at=scheduled_at,
+                    date_ordered=date.today(),
+                    producer_id=int(producer_id) if producer_id else None,
+                    created_by_id=g.user.id,
+                    drive_links=request.form.get("drive_links", "").strip(),
+                    status="published" if already_published else "ordered",
+                )
+                db.session.add(order)
             db.session.commit()
-            flash("New order created.", "success")
+            if len(languages_to_create) > 1:
+                flash(f"Created {len(languages_to_create)} new tasks — one per language.", "success")
+            else:
+                flash("New order created.", "success")
             return redirect(url_for("board_view"))
         return render_template(
             "order_import.html",
@@ -866,6 +879,7 @@ def register_routes(app):
             title=order.title,
             caption=order.caption,
             due_date=order.due_date,
+            scheduled_at=order.scheduled_at,
             date_ordered=order.date_ordered,
             producer_id=order.producer_id,
             created_by_id=g.user.id,
