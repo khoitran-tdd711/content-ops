@@ -302,11 +302,25 @@ document.addEventListener('DOMContentLoaded', function () {
     eventDrop: function (info) {
       const newDate = info.event.startStr.slice(0, 10);
       const existingTime = (info.event.extendedProps.scheduledAt || '').slice(11, 16) || '12:00';
+      // If this task is already actively scheduled in OneUp, the backend
+      // also cancels and re-creates the real OneUp post at the new time
+      // (OneUp has no "just move the time" endpoint) — that's why this
+      // needs the AJAX header and a moment longer than a plain save.
       fetch(`/orders/${info.event.id}/set-date`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'X-Requested-With': 'XMLHttpRequest'
+        },
         body: 'scheduled_at=' + encodeURIComponent(newDate + 'T' + existingTime)
-      }).catch(function () { info.revert(); });
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (!data.ok) { info.revert(); return; }
+          if (data.oneup_note) { alert(data.oneup_note); }
+          calendar.refetchEvents();
+        })
+        .catch(function () { info.revert(); });
     }
   });
 
