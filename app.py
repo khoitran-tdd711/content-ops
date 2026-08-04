@@ -80,6 +80,22 @@ def wants_json():
     return request.headers.get("X-Requested-With") == "XMLHttpRequest"
 
 
+def _ensure_column(table, column, ddl_type):
+    """Lightweight, no-Alembic column migration. This app has no migration
+    tool, and Flask-SQLAlchemy's create_all() only creates missing tables —
+    it never adds a missing column to a table that already exists. So every
+    time a new Order column gets added, it needs one of these calls, or the
+    already-running production database would crash with 'column does not
+    exist' the moment the app tries to read/write it. Safe to call on every
+    startup: does nothing once the column is already there."""
+    inspector = db.inspect(db.engine)
+    existing = {c["name"] for c in inspector.get_columns(table)}
+    if column in existing:
+        return
+    with db.engine.begin() as conn:
+        conn.execute(db.text(f'ALTER TABLE "{table}" ADD COLUMN {column} {ddl_type}'))
+
+
 def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
@@ -92,6 +108,7 @@ def create_app():
 
     with app.app_context():
         db.create_all()
+        _ensure_column("order", "oneup_post_id", "INTEGER")
 
     register_context(app)
     register_routes(app)
@@ -712,7 +729,21 @@ def register_routes(app):
     @app.route("/orders/<int:order_id>/set-date", methods=["POST"])
     @boss_required
     def order_set_date(order_id):
+        """Sets a task's pub date/time — used by the Board's date field AND
+        by dragging a card to a new day/time on the Calendar.
+
+        If this task is already actively scheduled in OneUp (status
+        "scheduled" with a tracked oneup_post_id), changing the time here
+        also re-syncs the real OneUp post: OneUp's API has no "just change
+        the time" endpoint for a post that's already scheduled, so the fix
+        is to cancel the old one and reschedule a fresh one at the new
+        time. Without this, dragging a card only updated our own database
+        while the real OneUp post kept firing at its old time."""
         order = Order.query.get_or_404(order_id)
+        was_live_in_oneup = order.status == "scheduled" and order.oneup_post_id
+        old_post_id = order.oneup_post_id
+        old_scheduled_at = order.scheduled_at
+
         scheduled_str = request.form.get("scheduled_at")
         if scheduled_str:
             try:
@@ -729,10 +760,28 @@ def register_routes(app):
         platform = request.form.get("platform")
         if platform:
             order.platform = platform
+
+        oneup_note = None
+        time_changed = order.scheduled_at != old_scheduled_at
+        if was_live_in_oneup and order.scheduled_at and time_changed:
+            api_key = get_oneup_api_key()
+            try:
+                oneup.delete_scheduled_post(api_key, old_post_id)
+            except oneup.OneUpError as e:
+                oneup_note = f"Moved locally, but couldn't cancel the old OneUp post ({e}) — check OneUp directly."
+            ok, message = publish_via_oneup(order)
+            if not ok:
+                oneup_note = f"Moved locally and cancelled the old OneUp post, but rescheduling it failed: {message}"
+        elif order.status == "scheduled" and not order.oneup_post_id and time_changed:
+            oneup_note = (
+                "This was scheduled before OneUp sync tracking existed, so its actual OneUp "
+                "time wasn't updated — please move it in OneUp directly too."
+            )
+
         db.session.commit()
         if wants_json():
-            return {"ok": True}
-        flash("Pub date updated.", "success")
+            return {"ok": True, "oneup_note": oneup_note}
+        flash(oneup_note, "error") if oneup_note else flash("Pub date updated.", "success")
         return redirect(request.referrer or url_for("board_view"))
 
     @app.route("/orders/<int:order_id>/set-status", methods=["POST"])
@@ -1409,16 +1458,24 @@ def publish_via_oneup(order):
         )
         order.status = "scheduled"
         order.oneup_response = json.dumps(result)
+        # scheduleimagepost's own response never includes the post_id it
+        # just created, so it's looked up right after via the scheduled
+        # queue and stashed here — needed later to cancel/redo this exact
+        # post if its date gets dragged to a new time on the Calendar.
+        scheduled_time_str = order.scheduled_at.strftime("%Y-%m-%d %H:%M")
+        order.oneup_post_id = oneup.find_scheduled_post_id(api_key, order.caption or "", scheduled_time_str)
         db.session.commit()
         return True, "Sent to OneUp and scheduled."
     except oneup.OneUpError as e:
         order.status = "failed"
         order.oneup_response = str(e)
+        order.oneup_post_id = None  # any old post_id is stale once this attempt failed
         db.session.commit()
         return False, f"OneUp rejected this post: {e}"
     except Exception as e:  # noqa: BLE001 - final safety net (network blips, etc.) — never 500
         order.status = "failed"
         order.oneup_response = str(e)
+        order.oneup_post_id = None
         db.session.commit()
         return False, f"Something went wrong sending this to OneUp: {e}"
 
