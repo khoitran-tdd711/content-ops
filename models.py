@@ -157,6 +157,12 @@ class Order(db.Model):
 
     scheduled_at = db.Column(db.DateTime)
     oneup_response = db.Column(db.Text)
+    # OneUp's own numeric ID for the post it created when this order was
+    # scheduled — captured right after scheduling (their API doesn't return
+    # it directly, see oneup.find_scheduled_post_id). Needed to cancel/redo
+    # that exact post when its pub date gets dragged to a new time on the
+    # Calendar, since OneUp has no "just change the time" endpoint.
+    oneup_post_id = db.Column(db.Integer, nullable=True)
 
     created_at = db.Column(db.DateTime, default=now)
     updated_at = db.Column(db.DateTime, default=now, onupdate=now)
