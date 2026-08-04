@@ -465,6 +465,12 @@ window.ajaxSubmitRow = function (form) {
         flashNear(form, res.data.error || 'Something went wrong.', true);
         return;
       }
+      if (res.data.oneup_note) {
+        // Pub date saved locally, but re-syncing the real OneUp post
+        // (cancel + reschedule at the new time) hit a snag — this is a
+        // real problem worth an alert, not just a quiet inline flash.
+        alert(res.data.oneup_note);
+      }
       flashNear(form, 'Saved', false);
       applyRowUpdate(form, res.data);
     })
