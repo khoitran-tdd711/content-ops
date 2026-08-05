@@ -738,11 +738,21 @@ def register_routes(app):
         the time" endpoint for a post that's already scheduled, so the fix
         is to cancel the old one and reschedule a fresh one at the new
         time. Without this, dragging a card only updated our own database
-        while the real OneUp post kept firing at its old time."""
+        while the real OneUp post kept firing at its old time.
+
+        Whenever that re-sync can't be confirmed (can't cancel the old
+        post, can't reschedule the new one, or this task predates OneUp
+        sync tracking so there's no post_id to act on at all), the date
+        change is rolled back entirely rather than left half-applied —
+        showing a new date here that doesn't match what OneUp will
+        actually do would be worse than just refusing the move and saying
+        so. The Calendar reflects this by snapping the card back to where
+        it started."""
         order = Order.query.get_or_404(order_id)
         was_live_in_oneup = order.status == "scheduled" and order.oneup_post_id
         old_post_id = order.oneup_post_id
         old_scheduled_at = order.scheduled_at
+        old_due_date = order.due_date
 
         scheduled_str = request.form.get("scheduled_at")
         if scheduled_str:
@@ -761,27 +771,49 @@ def register_routes(app):
         if platform:
             order.platform = platform
 
-        oneup_note = None
+        error = None
         time_changed = order.scheduled_at != old_scheduled_at
         if was_live_in_oneup and order.scheduled_at and time_changed:
             api_key = get_oneup_api_key()
             try:
                 oneup.delete_scheduled_post(api_key, old_post_id)
             except oneup.OneUpError as e:
-                oneup_note = f"Moved locally, but couldn't cancel the old OneUp post ({e}) — check OneUp directly."
-            ok, message = publish_via_oneup(order)
-            if not ok:
-                oneup_note = f"Moved locally and cancelled the old OneUp post, but rescheduling it failed: {message}"
+                # Couldn't even cancel the old post — do NOT also create a
+                # new one (that would leave two live posts in OneUp).
+                error = f"Couldn't cancel the old OneUp post ({e}) — nothing was moved. Check OneUp directly."
+            else:
+                ok, message = publish_via_oneup(order)
+                if not ok:
+                    # The old post is already cancelled at this point, so
+                    # regardless of *why* publish_via_oneup came back False
+                    # (an actual API error, or an early "not configured"
+                    # return that never touches the order at all) — nothing
+                    # is currently scheduled in OneUp for this task, and
+                    # that has to be reflected here explicitly rather than
+                    # assumed from publish_via_oneup's own side effects.
+                    order.status = "failed"
+                    order.oneup_post_id = None
+                    error = f"Cancelled the old OneUp post, but rescheduling it failed: {message}. Nothing is currently scheduled in OneUp for this task — please re-publish it."
         elif order.status == "scheduled" and not order.oneup_post_id and time_changed:
-            oneup_note = (
-                "This was scheduled before OneUp sync tracking existed, so its actual OneUp "
-                "time wasn't updated — please move it in OneUp directly too."
+            error = (
+                "This was scheduled before OneUp sync tracking existed, so there's no way to "
+                "find and move its real OneUp post automatically — nothing was moved. Please "
+                "change it directly in OneUp."
             )
+
+        if error:
+            order.scheduled_at = old_scheduled_at
+            order.due_date = old_due_date
 
         db.session.commit()
         if wants_json():
-            return {"ok": True, "oneup_note": oneup_note}
-        flash(oneup_note, "error") if oneup_note else flash("Pub date updated.", "success")
+            if error:
+                return {"ok": False, "error": error}, 409
+            return {"ok": True}
+        if error:
+            flash(error, "error")
+        else:
+            flash("Pub date updated.", "success")
         return redirect(request.referrer or url_for("board_view"))
 
     @app.route("/orders/<int:order_id>/set-status", methods=["POST"])
