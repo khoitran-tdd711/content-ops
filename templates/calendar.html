@@ -6,8 +6,8 @@
 {% block content %}
 <style>
   .cal-event-compact {
-    display: flex; align-items: center; gap: 4px; padding: 1px 5px;
-    border-radius: 5px; overflow: hidden; line-height: 1.3;
+    display: flex; align-items: center; gap: 4px; padding: 1px 16px 1px 5px;
+    border-radius: 5px; overflow: hidden; line-height: 1.3; position: relative;
   }
   .cal-event-compact .time {
     font-size: 10px; font-weight: 700; opacity: .85; flex-shrink: 0; white-space: nowrap;
@@ -17,15 +17,26 @@
   }
   .cal-event-rich {
     display: block; padding: 7px 10px; border-radius: 10px; overflow: hidden;
-    border-left: 3px solid rgba(255,255,255,.55);
+    border-left: 3px solid rgba(255,255,255,.55); position: relative;
   }
   .cal-event-rich .time { font-size: 11px; font-weight: 700; opacity: .8; margin-bottom: 2px; }
   .cal-event-rich .proj {
     font-family: 'Sora', sans-serif; font-weight: 700; font-size: 13px; line-height: 1.3;
     margin-bottom: 2px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-    overflow: hidden;
+    overflow: hidden; padding-right: 16px;
   }
   .cal-event-rich .acct { font-size: 11.5px; font-weight: 600; opacity: .85; }
+  /* Small platform logo badge in the corner of every Calendar card, so
+     it's obvious at a glance whether something's an Instagram, LinkedIn,
+     Facebook, or TikTok post without opening it. */
+  .cal-platform-badge {
+    position: absolute; top: 3px; right: 3px; width: 14px; height: 14px;
+    border-radius: 50%; background: rgba(255,255,255,.92); display: flex;
+    align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .cal-event-compact .cal-platform-badge { top: 1px; right: 1px; width: 12px; height: 12px; }
+  .cal-platform-badge svg { width: 9px; height: 9px; }
+  .cal-event-compact .cal-platform-badge svg { width: 7px; height: 7px; }
   .fc-daygrid-event { border: none !important; background: transparent !important; }
   .fc-timegrid-event, .fc-daygrid-event { padding: 0 !important; }
   .preview-strip { display: flex; gap: 8px; overflow-x: auto; padding: 2px 0 8px; }
@@ -165,6 +176,35 @@ document.addEventListener('DOMContentLoaded', function () {
     return haystack.includes(term);
   }
 
+  // Small platform logo shown in the corner of every Calendar card, so
+  // it's obvious at a glance which platform a task is for. Plain inline
+  // SVGs (no external icon library) — simplified glyphs, not exact brand
+  // artwork, in each platform's usual color.
+  const PLATFORM_ICONS = {
+    instagram:
+      '<svg viewBox="0 0 24 24" fill="none" stroke="#C13584" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">' +
+        '<rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/>' +
+        '<circle cx="17.3" cy="6.7" r=".7" fill="#C13584" stroke="none"/>' +
+      '</svg>',
+    linkedin:
+      '<svg viewBox="0 0 24 24" fill="#0A66C2">' +
+        '<rect x="2.5" y="9" width="4" height="12" rx="1"/><circle cx="4.5" cy="4.3" r="2.3"/>' +
+        '<path d="M9.5 9h4v2.2c.9-1.6 2.6-2.6 4.5-2.6 3.7 0 5.5 2.3 5.5 6.5V21h-4v-5.3c0-1.9-.7-3.2-2.4-3.2-1.3 0-2.1.9-2.5 1.8-.1.3-.1.7-.1 1.1V21h-4V9z"/>' +
+      '</svg>',
+    facebook:
+      '<svg viewBox="0 0 24 24" fill="#1877F2">' +
+        '<path d="M22 12a10 10 0 1 0-11.6 9.9v-7H7.9V12h2.5V9.8c0-2.5 1.5-3.9 3.8-3.9 1.1 0 2.2.2 2.5.3v2.7h-1.4c-1.2 0-1.6.8-1.6 1.6V12h2.9l-.5 2.9h-2.4v7A10 10 0 0 0 22 12z"/>' +
+      '</svg>',
+    tiktok:
+      '<svg viewBox="0 0 24 24" fill="#010101">' +
+        '<path d="M16.6 5.8a4.4 4.4 0 0 1-3-1.4v9.9a4.9 4.9 0 1 1-4.2-4.9v2.4a2.5 2.5 0 1 0 1.8 2.4V2h2.3a4.4 4.4 0 0 0 3.1 3.8v2z"/>' +
+      '</svg>'
+  };
+  function platformBadge(platform) {
+    const icon = PLATFORM_ICONS[platform];
+    return icon ? '<div class="cal-platform-badge">' + icon + '</div>' : '';
+  }
+
   function escapeHtml(s) {
     return (s || '').replace(/[&<>"']/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
@@ -255,6 +295,7 @@ document.addEventListener('DOMContentLoaded', function () {
       const fg = arg.event.textColor || '#fff';
       const title = props.projectTitle || arg.event.title;
       const account = props.accountLabel || '';
+      const badge = platformBadge(props.platform);
       // Card start/end dates are date-only (no time) so drag-and-drop can
       // move an item between days without touching its pub time — the real
       // pub time lives in scheduledAt, set once a time has actually been
@@ -273,6 +314,7 @@ document.addEventListener('DOMContentLoaded', function () {
             '<div class="cal-event-compact" style="background:' + bg + ';color:' + fg + '">' +
               (timeShort ? '<span class="time">' + timeShort + '</span>' : '') +
               '<span class="txt">' + escapeHtml(title) + '</span>' +
+              badge +
             '</div>'
         };
       }
@@ -282,6 +324,7 @@ document.addEventListener('DOMContentLoaded', function () {
             (timeLong ? '<div class="time">' + timeLong + '</div>' : '') +
             '<div class="proj">' + escapeHtml(title) + '</div>' +
             (account ? '<div class="acct">' + escapeHtml(account) + '</div>' : '') +
+            badge +
           '</div>'
       };
     },
@@ -316,8 +359,15 @@ document.addEventListener('DOMContentLoaded', function () {
       })
         .then(function (r) { return r.json(); })
         .then(function (data) {
-          if (!data.ok) { info.revert(); return; }
-          if (data.oneup_note) { alert(data.oneup_note); }
+          if (!data.ok) {
+            // The backend already rolled back the date change itself
+            // whenever it couldn't confirm the real OneUp post actually
+            // moved too — snap the card back to match, right after
+            // explaining why.
+            alert(data.error || "Couldn't move this task.");
+            info.revert();
+            return;
+          }
           calendar.refetchEvents();
         })
         .catch(function () { info.revert(); });
