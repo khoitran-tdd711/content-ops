@@ -163,6 +163,13 @@ class Order(db.Model):
     # that exact post when its pub date gets dragged to a new time on the
     # Calendar, since OneUp has no "just change the time" endpoint.
     oneup_post_id = db.Column(db.Integer, nullable=True)
+    # The boss's chosen photo selection/order from the Calendar's publish
+    # popup — a JSON list of filenames (as shown in the preview strip), in
+    # the order they should actually be sent. Null/blank means "no
+    # customization yet, use every photo in its natural Drive order" (the
+    # original behavior). Filenames no longer found in Drive are just
+    # skipped rather than erroring, in case the source zip changes later.
+    media_order = db.Column(db.Text, nullable=True)
 
     created_at = db.Column(db.DateTime, default=now)
     updated_at = db.Column(db.DateTime, default=now, onupdate=now)
