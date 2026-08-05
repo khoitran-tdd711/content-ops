@@ -462,14 +462,13 @@ window.ajaxSubmitRow = function (form) {
     .then(function (res) {
       if (btn) { btn.disabled = false; btn.textContent = originalText || 'Save'; }
       if (!res.data.ok) {
+        // Covers the OneUp-resync-failed case too (e.g. changing a
+        // scheduled task's pub date here) — the backend already rolled
+        // the date back itself when it couldn't confirm OneUp moved with
+        // it, so this flash is the whole story, not just a formatting
+        // complaint.
         flashNear(form, res.data.error || 'Something went wrong.', true);
         return;
-      }
-      if (res.data.oneup_note) {
-        // Pub date saved locally, but re-syncing the real OneUp post
-        // (cancel + reschedule at the new time) hit a snag — this is a
-        // real problem worth an alert, not just a quiet inline flash.
-        alert(res.data.oneup_note);
       }
       flashNear(form, 'Saved', false);
       applyRowUpdate(form, res.data);
