@@ -109,6 +109,7 @@ def create_app():
     with app.app_context():
         db.create_all()
         _ensure_column("order", "oneup_post_id", "INTEGER")
+        _ensure_column("order", "media_order", "TEXT")
 
     register_context(app)
     register_routes(app)
@@ -1137,6 +1138,29 @@ def register_routes(app):
             return {"images": [], "error": f"Couldn't load a preview: {e}"}
         return {"images": image_urls}
 
+    @app.route("/orders/<int:order_id>/set-media-order", methods=["POST"])
+    @boss_required
+    def order_set_media_order(order_id):
+        """Calendar publish popup's drag-to-reorder / click-to-remove photo
+        strip auto-saves here on every change. Body is JSON: {"filenames":
+        [...]} — the safe filenames as embedded in each preview thumbnail's
+        URL (its last path segment), in the order they should be published.
+        An empty list means "no customization," i.e. reset back to the
+        natural full Drive order. This only ever writes order.media_order;
+        expand_drive_links() (used by both the preview and the real OneUp
+        publish) is what actually applies it, so saving here immediately
+        changes what the next publish will send."""
+        order = Order.query.get_or_404(order_id)
+        payload = request.get_json(silent=True) or {}
+        filenames = payload.get("filenames")
+        if not isinstance(filenames, list) or not filenames:
+            order.media_order = None
+        else:
+            cleaned = [str(f) for f in filenames if isinstance(f, (str, int))]
+            order.media_order = json.dumps(cleaned) if cleaned else None
+        db.session.commit()
+        return {"ok": True}
+
     @app.route("/orders/<int:order_id>/generate-caption", methods=["POST"])
     @boss_required
     def order_generate_caption(order_id):
@@ -1360,13 +1384,39 @@ def _host_images_temporarily(images):
     return urls
 
 
+def _apply_media_order(order, images):
+    """Reorders/filters a list of (filename, bytes) tuples per the boss's
+    saved photo selection for this order (order.media_order, set from the
+    Calendar publish popup's drag-to-reorder / click-to-remove preview) —
+    returns them unchanged if nothing's been customized. A filename in the
+    saved order that's no longer present (source zip changed) is just
+    skipped; if that leaves nothing at all, falls back to the original
+    full set rather than silently publishing zero photos."""
+    if not order.media_order:
+        return images
+    try:
+        wanted = json.loads(order.media_order)
+    except (ValueError, TypeError):
+        return images
+    by_safe_name = {}
+    for fname, data in images:
+        safe = secure_filename(fname) or "image.jpg"
+        by_safe_name.setdefault(safe, (fname, data))
+    ordered = [by_safe_name[w] for w in wanted if w in by_safe_name]
+    return ordered if ordered else images
+
+
 def _collect_order_images(order, max_images=6):
     """Resolves an order's Drive link(s) into actual (filename, bytes)
     photo data, for the AI caption generator — a separate, read-only path
     from expand_drive_links (which hosts photos temporarily for OneUp to
     fetch); kept apart on purpose so this feature can't affect publishing.
-    Capped at max_images since a caption only needs to 'see' the carousel,
-    not necessarily every single slide."""
+    Respects the boss's saved photo selection/order (order.media_order) the
+    same way expand_drive_links does, so the caption generator "sees" the
+    same set of photos that will actually get published. Each source
+    (folder/zip) is fully collected and filtered before capping at
+    max_images, so removing an early photo doesn't accidentally bump a
+    later one out of view."""
     sa_json = Setting.get("google_service_account_json")
     if not sa_json:
         return []
@@ -1382,16 +1432,15 @@ def _collect_order_images(order, max_images=6):
             service = drive.get_service(sa_json)
         meta = drive.get_file_metadata(service, file_id)
         if drive.is_folder(meta):
-            for name, _mime, fid in drive.list_folder_images(service, file_id):
-                if len(collected) >= max_images:
-                    break
-                collected.append((name, drive.download_bytes(service, fid)))
+            folder_images = [
+                (name, drive.download_bytes(service, fid))
+                for name, _mime, fid in drive.list_folder_images(service, file_id)
+            ]
+            collected.extend(_apply_media_order(order, folder_images))
         elif drive.is_zip(meta):
             zip_bytes = drive.download_bytes(service, file_id)
-            for name, data in drive.extract_images(zip_bytes):
-                if len(collected) >= max_images:
-                    break
-                collected.append((name, data))
+            zip_images = drive.extract_images(zip_bytes)
+            collected.extend(_apply_media_order(order, zip_images))
         elif drive.is_image(meta):
             collected.append((meta.get("name", "image.jpg"), drive.download_bytes(service, file_id)))
     return collected[:max_images]
@@ -1425,6 +1474,7 @@ def expand_drive_links(order):
             if not folder_images:
                 raise drive.DriveError(f"'{meta.get('name')}' is a folder, but no photos were found inside it.")
             downloaded = [(name, drive.download_bytes(service, fid)) for name, _mime, fid in folder_images]
+            downloaded = _apply_media_order(order, downloaded)
             urls.extend(_host_images_temporarily(downloaded))
             continue
 
@@ -1436,6 +1486,7 @@ def expand_drive_links(order):
         images = drive.extract_images(zip_bytes)
         if not images:
             raise drive.DriveError(f"'{meta.get('name')}' is a zip, but no photos were found inside it.")
+        images = _apply_media_order(order, images)
         urls.extend(_host_images_temporarily(images))
     return urls
 
