@@ -40,10 +40,22 @@
   .fc-daygrid-event { border: none !important; background: transparent !important; }
   .fc-timegrid-event, .fc-daygrid-event { padding: 0 !important; }
   .preview-strip { display: flex; gap: 8px; overflow-x: auto; padding: 2px 0 8px; }
-  .preview-strip img {
+  /* Each photo in the publish popup is now its own draggable, removable
+     tile (not a bare <img>) so the boss can drop-to-reorder or click the
+     x to drop a photo before it goes out — see savePreviewOrder(). */
+  .preview-item { position: relative; flex-shrink: 0; cursor: grab; touch-action: none; }
+  .preview-item.dragging { opacity: .35; }
+  .preview-item.drag-over { outline: 2px dashed var(--border); outline-offset: 2px; }
+  .preview-item img {
     width: 150px; height: 150px; object-fit: cover; border-radius: 10px;
-    border: 1px solid var(--border); flex-shrink: 0; background: var(--bg); cursor: pointer;
+    border: 1px solid var(--border); flex-shrink: 0; background: var(--bg); cursor: pointer; display: block;
   }
+  .preview-remove {
+    position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border-radius: 50%;
+    border: none; background: rgba(0,0,0,.65); color: #fff; font-size: 15px; line-height: 1;
+    cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0;
+  }
+  .preview-remove:hover { background: rgba(220,76,76,.9); }
   #preview-lightbox { border: none; background: transparent; padding: 0; max-width: 92vw; max-height: 92vh; }
   #preview-lightbox::backdrop { background: rgba(0,0,0,.8); }
   #preview-lightbox img { max-width: 92vw; max-height: 92vh; border-radius: 10px; display: block; cursor: pointer; }
@@ -212,14 +224,28 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   // Shows what will actually get sent to OneUp — same Drive link handling
-  // as the real publish, just read-only. Zips can take a few seconds to
-  // download and unpack, so this shows a loading state while it works, and
-  // ignores its own result if the boss has already clicked into a
-  // different task by the time it comes back.
+  // as the real publish, just read-only (well, minus the drag/remove
+  // controls below, which *do* write back — see savePreviewOrder()).
+  // Zips can take a few seconds to download and unpack, so this shows a
+  // loading state while it works, and ignores its own result if the boss
+  // has already clicked into a different task by the time it comes back.
   let previewRequestId = 0;
+  let currentPreviewOrderId = null;
+  let draggedPreviewIndex = null;
+
+  // Every preview thumbnail's URL ends in /media/<random-token>/<safe-name>
+  // — the token is fresh every request, but the trailing filename is the
+  // same stable key _apply_media_order() matches against on the backend
+  // (secure_filename of the original photo name). That's what gets saved,
+  // not the full URL.
+  function filenameFromPreviewUrl(url) {
+    return url.split('/').pop();
+  }
+
   function loadMediaPreview(orderId) {
     const wrap = document.getElementById('event-modal-preview');
     const thisRequest = ++previewRequestId;
+    currentPreviewOrderId = orderId;
     wrap.innerHTML = '<p class="muted" style="margin:0 0 10px;font-size:12px">Loading preview…</p>';
     fetch('/orders/' + orderId + '/media-preview')
       .then(function (r) { return r.json(); })
@@ -233,16 +259,90 @@ document.addEventListener('DOMContentLoaded', function () {
           wrap.innerHTML = '<p class="muted" style="margin:0 0 10px;font-size:12px">No preview available.</p>';
           return;
         }
-        wrap.innerHTML = '<div class="preview-strip">' +
-          data.images.map(function (u) {
-            return '<img src="' + u + '" loading="lazy" onclick="openLightbox(this.src)">';
-          }).join('') +
-          '</div>';
+        renderPreviewStrip(orderId, data.images);
       })
       .catch(function () {
         if (thisRequest !== previewRequestId) return;
         wrap.innerHTML = '<p class="muted" style="margin:0 0 10px;font-size:12px">Couldn\'t load a preview.</p>';
       });
+  }
+
+  function renderPreviewStrip(orderId, urls) {
+    const wrap = document.getElementById('event-modal-preview');
+    const canRemove = urls.length > 1;
+    wrap.innerHTML =
+      '<div class="preview-strip" id="preview-strip">' +
+      urls.map(function (u, i) {
+        return '<div class="preview-item" draggable="true" data-index="' + i + '">' +
+          '<img src="' + u + '" loading="lazy" onclick="openLightbox(this.src)">' +
+          (canRemove
+            ? '<button type="button" class="preview-remove" title="Remove this photo" onclick="removePreviewPhoto(' + i + ')">&times;</button>'
+            : '') +
+          '</div>';
+      }).join('') +
+      '</div>' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin:0 0 10px">' +
+        '<p class="muted" style="margin:0;font-size:12px">Drag to reorder, click &times; to remove a photo. Changes save automatically and apply to OneUp.</p>' +
+        '<button type="button" class="btn secondary" style="padding:2px 10px;font-size:12px;flex-shrink:0" onclick="resetPreviewOrder(' + orderId + ')">Reset order</button>' +
+      '</div>';
+
+    const strip = document.getElementById('preview-strip');
+    strip.querySelectorAll('.preview-item').forEach(function (item) {
+      item.addEventListener('dragstart', function () {
+        draggedPreviewIndex = Number(item.dataset.index);
+        item.classList.add('dragging');
+      });
+      item.addEventListener('dragend', function () {
+        item.classList.remove('dragging');
+        strip.querySelectorAll('.preview-item').forEach(function (el) { el.classList.remove('drag-over'); });
+      });
+      item.addEventListener('dragover', function (e) {
+        e.preventDefault();
+        item.classList.add('drag-over');
+      });
+      item.addEventListener('dragleave', function () {
+        item.classList.remove('drag-over');
+      });
+      item.addEventListener('drop', function (e) {
+        e.preventDefault();
+        item.classList.remove('drag-over');
+        const targetIndex = Number(item.dataset.index);
+        if (draggedPreviewIndex === null || draggedPreviewIndex === targetIndex) return;
+        const reordered = urls.slice();
+        const [moved] = reordered.splice(draggedPreviewIndex, 1);
+        reordered.splice(targetIndex, 0, moved);
+        draggedPreviewIndex = null;
+        renderPreviewStrip(orderId, reordered);
+        savePreviewOrder(orderId, reordered.map(filenameFromPreviewUrl));
+      });
+    });
+  }
+
+  window.removePreviewPhoto = function (index) {
+    const strip = document.getElementById('preview-strip');
+    const urls = Array.from(strip.querySelectorAll('.preview-item img')).map(function (img) { return img.getAttribute('src'); });
+    if (urls.length <= 1) return; // last photo — button isn't even rendered in this case
+    urls.splice(index, 1);
+    renderPreviewStrip(currentPreviewOrderId, urls);
+    savePreviewOrder(currentPreviewOrderId, urls.map(filenameFromPreviewUrl));
+  };
+
+  window.resetPreviewOrder = function (orderId) {
+    savePreviewOrder(orderId, []);
+    loadMediaPreview(orderId);
+  };
+
+  function savePreviewOrder(orderId, filenames) {
+    fetch('/orders/' + orderId + '/set-media-order', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filenames: filenames })
+    }).catch(function () {
+      // Best-effort autosave — if this one request fails, the next publish
+      // just falls back to whatever selection/order was last saved
+      // successfully (or the full natural order if nothing ever was), so
+      // it's safe to stay quiet here rather than interrupt the boss.
+    });
   }
 
   const calendar = new FullCalendar.Calendar(calendarEl, {
