@@ -60,6 +60,15 @@ h1, h2, h3 {
   line-height: 1.1;
 }
 
+/* Browsers give <dialog> its own default background-color/color (white
+   on black) regardless of our page theme, which the Calendar's publish
+   popup and lightbox never overrode -- harmless in light mode since that
+   default happened to match, but it meant anything inside that didn't
+   set its own color (like the popup's <h3> title) stayed black-on-black
+   in night mode. Setting it explicitly here makes it follow the theme
+   like everything else. */
+dialog { background: var(--card); color: var(--text); }
+
 a { color: var(--link-color); text-decoration: none; font-weight: 500; }
 a:hover { text-decoration: underline; }
 
