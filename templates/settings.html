@@ -136,7 +136,7 @@ function fetchAndShow(url, targetId) {
   target.textContent = 'Loading...';
   fetch(url).then(r => r.json()).then(data => {
     if (data.error) { target.textContent = 'Error: ' + data.error; return; }
-    target.innerHTML = '<pre style="white-space:pre-wrap;font-size:12px;background:#f3f4f6;padding:10px;border-radius:8px">' +
+    target.innerHTML = '<pre style="white-space:pre-wrap;font-size:12px;background:var(--code-bg);padding:10px;border-radius:8px">' +
       JSON.stringify(data, null, 2) + '</pre>';
   }).catch(e => target.textContent = 'Error: ' + e);
 }
