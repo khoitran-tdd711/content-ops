@@ -41,7 +41,9 @@ from models import (
     LANGUAGE_FLAGS,
     LANGUAGES,
     PLATFORMS,
+    STATUS_COLORS,
     STATUS_LABELS,
+    STATUS_TEXT_COLORS,
     Order,
     OrderMedia,
     Setting,
@@ -240,7 +242,20 @@ def register_routes(app):
     @login_required
     def calendar_view():
         producers = User.query.filter_by(role="producer").order_by(User.name).all()
-        return render_template("calendar.html", producers=producers, platforms=PLATFORMS)
+        # Handed to the page's JS as a plain object so the custom date-range
+        # summary bar can render a label/color-matched pill per status
+        # without a server round trip — same colors as the Board and the
+        # legend above the grid.
+        status_meta = {
+            s: {"label": STATUS_LABELS[s], "color": STATUS_COLORS[s], "textColor": STATUS_TEXT_COLORS[s]}
+            for s in STATUS_LABELS
+        }
+        return render_template(
+            "calendar.html",
+            producers=producers,
+            platforms=PLATFORMS,
+            status_meta_json=json.dumps(status_meta),
+        )
 
     @app.route("/api/orders.json")
     @login_required
@@ -274,6 +289,7 @@ def register_routes(app):
                     "textColor": o.status_text_color,
                     "url": url_for("order_detail", order_id=o.id),
                     "bucket": bucket,
+                    "status": o.status,
                     "platform": o.platform,
                     "caption": o.caption or "",
                     "firstComment": o.first_comment or "",
@@ -471,6 +487,8 @@ def register_routes(app):
         platform = request.args.get("platform", "").strip()
         status = request.args.get("status", "").strip()
         sort = request.args.get("sort", "desc").strip()
+        from_date_str = request.args.get("from", "").strip()
+        to_date_str = request.args.get("to", "").strip()
 
         query = Order.query
         if q:
@@ -481,9 +499,35 @@ def register_routes(app):
             query = query.filter(Order.platform == platform)
         if status:
             query = query.filter(Order.status == status)
+        # "From"/"To" filter by pub date (due_date), same field the
+        # Calendar places things by — a custom window like "10/7 - 5/8"
+        # answers "what's happening (at every stage) in this stretch,"
+        # not "what was created in this stretch." Tasks with no pub date
+        # yet (most freshly-"ordered" ones) simply don't have a position
+        # in any date window, so they're excluded once either bound is set
+        # — same as they're excluded from the Calendar today.
+        if from_date_str:
+            try:
+                from_date = datetime.strptime(from_date_str, "%Y-%m-%d").date()
+                query = query.filter(Order.due_date >= from_date)
+            except ValueError:
+                from_date_str = ""
+        if to_date_str:
+            try:
+                to_date = datetime.strptime(to_date_str, "%Y-%m-%d").date()
+                query = query.filter(Order.due_date <= to_date)
+            except ValueError:
+                to_date_str = ""
 
         date_order = Order.date_ordered.asc() if sort == "asc" else Order.date_ordered.desc()
         orders = query.order_by(Order.date_ordered.is_(None), date_order, Order.title).all()
+
+        # Tallied over this same filtered set, so switching any filter
+        # (status/platform/language/search/date range) updates the counts
+        # right along with the rows below them.
+        status_counts = {}
+        for o in orders:
+            status_counts[o.status] = status_counts.get(o.status, 0) + 1
 
         producers = User.query.filter_by(role="producer").order_by(User.name).all()
         return render_template(
@@ -494,7 +538,18 @@ def register_routes(app):
             board_statuses=BOARD_STATUSES,
             producers=producers,
             content_types=CONTENT_TYPES,
-            filters={"q": q, "language": language, "platform": platform, "status": status, "sort": sort},
+            status_counts=status_counts,
+            status_colors=STATUS_COLORS,
+            status_text_colors=STATUS_TEXT_COLORS,
+            filters={
+                "q": q,
+                "language": language,
+                "platform": platform,
+                "status": status,
+                "sort": sort,
+                "from": from_date_str,
+                "to": to_date_str,
+            },
         )
 
     @app.route("/orders/find-drive-links")
