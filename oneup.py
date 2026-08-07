@@ -88,6 +88,7 @@ def schedule_image_post(
     content,
     image_urls,
     title=None,
+    first_comment=None,
 ):
     """
     scheduled_date_time: 'YYYY-MM-DD HH:MM' (24h) string, local to your OneUp
@@ -96,6 +97,10 @@ def schedule_image_post(
         Google Drive links first. Multiple images = one carousel post.
     social_network_ids: list of OneUp social_network_id strings for the
         target accounts (see list_social_accounts / your Settings page).
+    first_comment: optional text OneUp will auto-post as the first comment
+        right after publishing -- per their docs this only actually takes
+        effect on Facebook, Instagram, LinkedIn, and YouTube. Harmless to
+        send for any other platform; OneUp just ignores it there.
     """
     data = {
         "apiKey": api_key,
@@ -107,6 +112,8 @@ def schedule_image_post(
     }
     if title:
         data["title"] = title
+    if first_comment:
+        data["first_comment"] = first_comment
 
     attempt = 0
     while True:
