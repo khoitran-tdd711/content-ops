@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import check_password_hash, generate_password_hash
+from werkzeug.utils import secure_filename
 
 db = SQLAlchemy()
 
@@ -199,3 +200,44 @@ class Order(db.Model):
             if chunk:
                 parts.append(chunk)
         return parts
+
+
+class OrderMedia(db.Model):
+    """A photo manually uploaded straight into Content Ops for one task, on
+    top of (not instead of) whatever's already pulled from its Drive
+    link(s) — the Calendar publish popup's "+ Add photo" control. Stored
+    directly in Postgres (bytes in the row) rather than on local disk,
+    since Render's free web dyno's filesystem doesn't survive a restart or
+    redeploy, and rather than a separate object-storage service, to keep
+    the stack as simple/free as it already is. sort_order is just the
+    natural "added in this order" position — the boss's own drag-to-
+    reorder customization (Order.media_order) is layered on top of this,
+    same as it is for Drive photos."""
+
+    id = db.Column(db.Integer, primary_key=True)
+    order_id = db.Column(db.Integer, db.ForeignKey("order.id"), nullable=False)
+    filename = db.Column(db.String(255), nullable=False)
+    mime_type = db.Column(db.String(100), default="image/jpeg")
+    data = db.Column(db.LargeBinary, nullable=False)
+    sort_order = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=now)
+
+    order = db.relationship(
+        "Order",
+        backref=db.backref(
+            "uploaded_media",
+            order_by="OrderMedia.sort_order, OrderMedia.id",
+            cascade="all, delete-orphan",
+        ),
+    )
+
+    @property
+    def media_key(self):
+        """Stable identifier for this photo — embedded as the last path
+        segment of its serving URL (see app.py's _uploaded_media_url),
+        which is also exactly what the boss's saved photo order/selection
+        (Order.media_order) matches against, alongside Drive photos'
+        secure_filename. Prefixed with this row's own id so it can never
+        collide with a Drive-derived key."""
+        safe = secure_filename(self.filename) or "photo.jpg"
+        return f"upload-{self.id}-{safe}"
