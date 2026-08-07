@@ -117,6 +117,7 @@ def create_app():
         db.create_all()
         _ensure_column("order", "oneup_post_id", "INTEGER")
         _ensure_column("order", "media_order", "TEXT")
+        _ensure_column("order", "first_comment", "TEXT")
 
     register_context(app)
     register_routes(app)
@@ -275,6 +276,7 @@ def register_routes(app):
                     "bucket": bucket,
                     "platform": o.platform,
                     "caption": o.caption or "",
+                    "firstComment": o.first_comment or "",
                     "scheduledAt": o.scheduled_at.strftime("%Y-%m-%dT%H:%M") if o.scheduled_at else None,
                     "projectTitle": o.title or "(untitled)",
                     "accountLabel": get_account_nickname(o.platform, o.language),
@@ -349,6 +351,7 @@ def register_routes(app):
                     quantity=int(request.form.get("quantity", 1) or 1),
                     title=request.form.get("title", "").strip(),
                     caption=request.form.get("caption", "").strip(),
+                    first_comment=request.form.get("first_comment", "").strip() or None,
                     due_date=scheduled_at.date() if scheduled_at else None,
                     scheduled_at=scheduled_at,
                     date_ordered=date.today(),
@@ -1005,6 +1008,8 @@ def register_routes(app):
         order.drive_links = request.form.get("drive_links", "").strip()
         if request.form.get("caption"):
             order.caption = request.form.get("caption").strip()
+        if "first_comment" in request.form:
+            order.first_comment = request.form.get("first_comment", "").strip() or None
         order.status = "submitted"
         db.session.commit()
         mailer.notify_submitted(order)
@@ -1098,6 +1103,8 @@ def register_routes(app):
 
             if "caption" in request.form:
                 order.caption = request.form.get("caption", "").strip()
+            if "first_comment" in request.form:
+                order.first_comment = request.form.get("first_comment", "").strip() or None
 
             db.session.commit()
 
@@ -1717,6 +1724,7 @@ def publish_via_oneup(order):
             content=order.caption or "",
             image_urls=image_urls,
             title=order.title or None,
+            first_comment=order.first_comment or None,
         )
         order.status = "scheduled"
         order.oneup_response = json.dumps(result)
