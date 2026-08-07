@@ -164,6 +164,9 @@
       <textarea id="event-modal-caption" name="caption" placeholder="Caption for this post"></textarea>
       <p id="event-modal-caption-status" class="muted" style="margin:4px 0 0;font-size:12px"></p>
 
+      <label>First comment (optional)</label>
+      <textarea id="event-modal-first-comment" name="first_comment" placeholder="Auto-posted right after publishing — Facebook/Instagram/LinkedIn/YouTube only" style="min-height:60px"></textarea>
+
       <p id="event-modal-status" class="muted" style="margin:8px 0 0;font-size:12px"></p>
 
       <div style="display:flex;gap:10px;margin-top:14px">
@@ -506,6 +509,7 @@ document.addEventListener('DOMContentLoaded', function () {
       document.getElementById('event-modal-title').textContent = label;
       document.getElementById('event-modal-datetime').value = props.scheduledAt || (info.event.startStr.slice(0, 10) + 'T12:00');
       document.getElementById('event-modal-caption').value = props.caption || '';
+      document.getElementById('event-modal-first-comment').value = props.firstComment || '';
       document.getElementById('event-modal-modify').href = info.event.url;
       document.getElementById('event-modal-publish-form').action = '/orders/' + info.event.id + '/publish-now';
       document.getElementById('event-modal-caption-status').textContent = '';
