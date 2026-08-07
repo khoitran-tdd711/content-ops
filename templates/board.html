@@ -118,11 +118,32 @@
         <option value="asc" {{ 'selected' if filters.sort == 'asc' }}>Oldest first</option>
       </select>
     </div>
+    <div>
+      <label style="margin:0 0 4px">Pub date from</label>
+      <input type="date" name="from" value="{{ filters.from }}" style="margin:0">
+    </div>
+    <div>
+      <label style="margin:0 0 4px">Pub date to</label>
+      <input type="date" name="to" value="{{ filters.to }}" style="margin:0">
+    </div>
     <div style="display:flex;gap:8px">
       <button class="btn" type="submit">Filter</button>
       <a class="btn secondary" href="{{ url_for('board_view') }}" id="clear-filters-link">Clear</a>
     </div>
   </form>
+
+  {% if status_counts %}
+  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 16px">
+    <span class="muted" style="font-size:13px">
+      {% if filters.from or filters.to %}In this range:{% else %}All tasks shown:{% endif %}
+    </span>
+    {% for s, count in status_counts.items() %}
+      <span class="badge" style="background:{{ status_colors.get(s, '#6B7280') }};color:{{ status_text_colors.get(s, '#fff') }}">
+        {{ STATUS_LABELS.get(s, s) }}: {{ count }}
+      </span>
+    {% endfor %}
+  </div>
+  {% endif %}
 
   {% if current_user.is_boss %}
   <div id="bulk-bar">
@@ -812,7 +833,7 @@ document.getElementById('note-form').addEventListener('submit', function (e) {
 // no query string at all, we restore them via a one-time redirect. Clicking
 // "Clear" wipes the saved filters first, so it still means "show everything."
 (function () {
-  var FILTER_KEYS = ['q', 'language', 'platform', 'status', 'sort'];
+  var FILTER_KEYS = ['q', 'language', 'platform', 'status', 'sort', 'from', 'to'];
   var STORAGE_KEY = 'board_filters';
   var params = new URLSearchParams(window.location.search);
 
