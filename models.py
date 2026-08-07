@@ -146,6 +146,13 @@ class Order(db.Model):
     quantity = db.Column(db.Integer, default=1)
     title = db.Column(db.String(200))
     caption = db.Column(db.Text)
+    # Auto-posted as the first comment on the published post (OneUp's own
+    # scheduleimagepost API supports this natively) -- the common "keep
+    # hashtags/CTAs out of the main caption" trick, especially on
+    # Instagram. Only Facebook, Instagram, LinkedIn, and YouTube actually
+    # support it on OneUp's end; harmless (just ignored) if set for a
+    # platform that doesn't. Blank means no first comment gets sent.
+    first_comment = db.Column(db.Text, nullable=True)
     due_date = db.Column(db.Date, nullable=True)  # blank until a pub date is assigned on the Board
     date_ordered = db.Column(db.Date)  # when it was placed/produced ("Folder Created" for tracker imports)
 
