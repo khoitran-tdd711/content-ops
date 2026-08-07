@@ -121,8 +121,17 @@
   <label style="display:flex;gap:6px;align-items:center;margin:0;font-weight:500">
     <input type="checkbox" class="cal-filter" value="published" checked style="width:auto;margin:0"> Published
   </label>
-  <input type="text" id="cal-search" placeholder="Search tasks…" style="width:220px;margin:0 0 0 auto">
+  <label style="display:flex;gap:6px;align-items:center;margin:0 0 0 auto;font-weight:500">
+    From <input type="date" id="cal-date-from" style="width:150px;margin:0">
+  </label>
+  <label style="display:flex;gap:6px;align-items:center;margin:0;font-weight:500">
+    To <input type="date" id="cal-date-to" style="width:150px;margin:0">
+  </label>
+  <button type="button" class="btn secondary" id="cal-date-clear" style="padding:4px 10px;font-size:13px">Clear dates</button>
+  <input type="text" id="cal-search" placeholder="Search tasks…" style="width:220px;margin:0">
 </div>
+
+<div id="cal-status-summary" style="display:none;margin:0 0 16px;gap:8px;flex-wrap:wrap;align-items:center"></div>
 
 <div style="margin:0 0 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
   <label class="platform-chip" data-platform="instagram">
@@ -189,7 +198,16 @@ document.addEventListener('DOMContentLoaded', function () {
   const filterBoxes = document.querySelectorAll('.cal-filter');
   const platformBoxes = document.querySelectorAll('.cal-platform-filter');
   const searchInput = document.getElementById('cal-search');
+  const dateFromInput = document.getElementById('cal-date-from');
+  const dateToInput = document.getElementById('cal-date-to');
+  const dateClearBtn = document.getElementById('cal-date-clear');
+  const summaryEl = document.getElementById('cal-status-summary');
   const modal = document.getElementById('event-modal');
+
+  // Per-status label/color, same as the Board and the legend above the
+  // grid — used to render the "In this range: Ordered 10 · Scheduled 20 ·
+  // Published 100" summary bar once a custom date range is picked.
+  const STATUS_META = {{ status_meta_json | safe }};
 
   function activeBuckets() {
     return Array.from(filterBoxes).filter(cb => cb.checked).map(cb => cb.value);
@@ -212,6 +230,50 @@ document.addEventListener('DOMContentLoaded', function () {
     if (!term) return true;
     const haystack = ((e.projectTitle || e.title || '') + ' ' + (e.accountLabel || '')).toLowerCase();
     return haystack.includes(term);
+  }
+
+  // "From"/"To" filter on the same pub date (e.start, "YYYY-MM-DD") the
+  // event is actually placed on the grid by — a custom window like
+  // "10/7 - 5/8" independent of whichever month/week the grid happens to
+  // be showing right now.
+  function matchesDateRange(e, from, to) {
+    if (!e.start) return !from && !to;
+    if (from && e.start < from) return false;
+    if (to && e.start > to) return false;
+    return true;
+  }
+
+  // Tallies the currently-filtered events by their raw status (not just
+  // the coarser planned/scheduled/published bucket) and renders a pill
+  // per status that actually has a count — this is the "10 ordered, 20
+  // scheduled, 100 published" summary, scoped to whatever date range (and
+  // any other active filter) is currently picked. Hidden entirely with no
+  // date range set, since "everything, forever" isn't really a useful
+  // count to show at a glance.
+  function renderStatusSummary(events, hasRange) {
+    if (!hasRange) {
+      summaryEl.style.display = 'none';
+      summaryEl.innerHTML = '';
+      return;
+    }
+    const counts = {};
+    events.forEach(function (e) {
+      const s = e.status || 'unknown';
+      counts[s] = (counts[s] || 0) + 1;
+    });
+    const keys = Object.keys(counts);
+    if (!keys.length) {
+      summaryEl.style.display = 'flex';
+      summaryEl.innerHTML = '<span class="muted" style="font-size:13px">In this range: nothing yet.</span>';
+      return;
+    }
+    summaryEl.style.display = 'flex';
+    summaryEl.innerHTML = '<span class="muted" style="font-size:13px">In this range:</span>' +
+      keys.map(function (s) {
+        const meta = STATUS_META[s] || { label: s, color: '#6B7280', textColor: '#fff' };
+        return '<span class="badge" style="background:' + meta.color + ';color:' + meta.textColor + '">' +
+          escapeHtml(meta.label) + ': ' + counts[s] + '</span>';
+      }).join('');
   }
 
   // Small platform logo shown in the corner of every Calendar card, so
@@ -437,9 +499,14 @@ document.addEventListener('DOMContentLoaded', function () {
           const active = activeBuckets();
           const activePlats = activePlatforms();
           const term = (searchInput.value || '').trim().toLowerCase();
-          successCallback(data.events.filter(e =>
-            active.includes(e.bucket) && matchesSearch(e, term) && matchesPlatform(e, activePlats)
-          ));
+          const dateFrom = dateFromInput.value || '';
+          const dateTo = dateToInput.value || '';
+          const filtered = data.events.filter(e =>
+            active.includes(e.bucket) && matchesSearch(e, term) && matchesPlatform(e, activePlats) &&
+            matchesDateRange(e, dateFrom, dateTo)
+          );
+          renderStatusSummary(filtered, Boolean(dateFrom || dateTo));
+          successCallback(filtered);
         })
         .catch(failureCallback);
     },
@@ -647,6 +714,14 @@ document.addEventListener('DOMContentLoaded', function () {
   searchInput.addEventListener('input', function () {
     clearTimeout(searchDebounce);
     searchDebounce = setTimeout(function () { calendar.refetchEvents(); }, 250);
+  });
+
+  dateFromInput.addEventListener('change', function () { calendar.refetchEvents(); });
+  dateToInput.addEventListener('change', function () { calendar.refetchEvents(); });
+  dateClearBtn.addEventListener('click', function () {
+    dateFromInput.value = '';
+    dateToInput.value = '';
+    calendar.refetchEvents();
   });
 
   calendar.render();
