@@ -16,6 +16,7 @@
   </p>
   {% if order.title %}<p><strong>{{ order.title }}</strong></p>{% endif %}
   {% if order.caption %}<p style="white-space:pre-wrap">{{ order.caption }}</p>{% endif %}
+  {% if order.first_comment %}<p class="muted" style="white-space:pre-wrap">First comment: {{ order.first_comment }}</p>{% endif %}
 
   {% if order.feedback_note and order.status == 'to_modify' %}
     <div class="flash warning">Feedback from {{ order.creator.name if order.creator else 'boss' }}: {{ order.feedback_note }}</div>
@@ -40,6 +41,8 @@
     <textarea name="drive_links" required placeholder="https://drive.google.com/file/d/.../view">{{ order.drive_links or '' }}</textarea>
     <label>Caption (optional — leave as-is to keep the current brief)</label>
     <textarea name="caption" placeholder="Final caption text">{{ order.caption or '' }}</textarea>
+    <label>First comment (optional — auto-posted right after publishing; Facebook/Instagram/LinkedIn/YouTube only)</label>
+    <textarea name="first_comment" placeholder="e.g. hashtags, kept out of the main caption">{{ order.first_comment or '' }}</textarea>
     <div style="margin-top:14px">
       <button class="btn" type="submit">Submit for review</button>
     </div>
