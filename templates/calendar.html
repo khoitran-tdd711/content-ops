@@ -233,11 +233,13 @@ document.addEventListener('DOMContentLoaded', function () {
   let currentPreviewOrderId = null;
   let draggedPreviewIndex = null;
 
-  // Every preview thumbnail's URL ends in /media/<random-token>/<safe-name>
-  // — the token is fresh every request, but the trailing filename is the
-  // same stable key _apply_media_order() matches against on the backend
-  // (secure_filename of the original photo name). That's what gets saved,
-  // not the full URL.
+  // Every preview thumbnail's URL ends in its stable key: for a Drive
+  // photo that's /media/<random-token>/<safe-name> (token is fresh every
+  // request, but the trailing filename is the same secure_filename the
+  // backend keys it by); for an uploaded photo it's /orders/<id>/
+  // uploaded-media/<media-id>/<key> (permanent, doesn't change). Either
+  // way, that trailing key is what actually gets saved to order.media_
+  // order via savePreviewOrder(), not the full URL.
   function filenameFromPreviewUrl(url) {
     return url.split('/').pop();
   }
@@ -251,40 +253,55 @@ document.addEventListener('DOMContentLoaded', function () {
       .then(function (r) { return r.json(); })
       .then(function (data) {
         if (thisRequest !== previewRequestId) return;
-        if (data.error) {
-          wrap.innerHTML = '<p class="muted" style="margin:0 0 10px;font-size:12px">' + escapeHtml(data.error) + '</p>';
-          return;
-        }
-        if (!data.images.length) {
-          wrap.innerHTML = '<p class="muted" style="margin:0 0 10px;font-size:12px">No preview available.</p>';
-          return;
-        }
-        renderPreviewStrip(orderId, data.images);
+        renderPreviewStrip(orderId, data.images || [], data.error || null);
       })
       .catch(function () {
         if (thisRequest !== previewRequestId) return;
-        wrap.innerHTML = '<p class="muted" style="margin:0 0 10px;font-size:12px">Couldn\'t load a preview.</p>';
+        renderPreviewStrip(orderId, [], "Couldn't load a preview.");
       });
   }
 
-  function renderPreviewStrip(orderId, urls) {
+  // Always renders the strip (if there's anything to show) *and* the
+  // controls row below it (Add photo / Reset order / status line) —
+  // even on an empty or errored preview, so the boss can still add a
+  // photo to a task that has no Drive link yet, or work around a bad zip
+  // by uploading replacements directly.
+  function renderPreviewStrip(orderId, urls, errorMessage) {
     const wrap = document.getElementById('event-modal-preview');
     const canRemove = urls.length > 1;
-    wrap.innerHTML =
-      '<div class="preview-strip" id="preview-strip">' +
-      urls.map(function (u, i) {
-        return '<div class="preview-item" draggable="true" data-index="' + i + '">' +
-          '<img src="' + u + '" loading="lazy" onclick="openLightbox(this.src)">' +
-          (canRemove
-            ? '<button type="button" class="preview-remove" title="Remove this photo" onclick="removePreviewPhoto(' + i + ')">&times;</button>'
+    let html = '';
+    if (errorMessage) {
+      html += '<p class="muted" style="margin:0 0 10px;font-size:12px">' + escapeHtml(errorMessage) + '</p>';
+    } else if (!urls.length) {
+      html += '<p class="muted" style="margin:0 0 10px;font-size:12px">No photos yet — add one below.</p>';
+    } else {
+      html += '<div class="preview-strip" id="preview-strip">' +
+        urls.map(function (u, i) {
+          return '<div class="preview-item" draggable="true" data-index="' + i + '">' +
+            '<img src="' + u + '" loading="lazy" onclick="openLightbox(this.src)">' +
+            (canRemove
+              ? '<button type="button" class="preview-remove" title="Remove this photo" onclick="removePreviewPhoto(' + i + ')">&times;</button>'
+              : '') +
+            '</div>';
+        }).join('') +
+        '</div>';
+    }
+    html +=
+      '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin:0 0 6px;flex-wrap:wrap">' +
+        '<p class="muted" style="margin:0;font-size:12px">Drag to reorder, click &times; to remove. Changes save automatically and apply to OneUp.</p>' +
+        '<div style="display:flex;gap:8px;flex-shrink:0">' +
+          '<label class="btn secondary" style="padding:2px 10px;font-size:12px;margin:0;cursor:pointer">+ Add photo' +
+            '<input type="file" accept="image/*" multiple style="display:none" onchange="uploadPreviewPhotos(' + orderId + ', this)">' +
+          '</label>' +
+          (urls.length
+            ? '<button type="button" class="btn secondary" style="padding:2px 10px;font-size:12px" onclick="resetPreviewOrder(' + orderId + ')">Reset order</button>'
             : '') +
-          '</div>';
-      }).join('') +
+        '</div>' +
       '</div>' +
-      '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin:0 0 10px">' +
-        '<p class="muted" style="margin:0;font-size:12px">Drag to reorder, click &times; to remove a photo. Changes save automatically and apply to OneUp.</p>' +
-        '<button type="button" class="btn secondary" style="padding:2px 10px;font-size:12px;flex-shrink:0" onclick="resetPreviewOrder(' + orderId + ')">Reset order</button>' +
-      '</div>';
+      '<p id="preview-upload-status" class="muted" style="margin:0 0 10px;font-size:12px"></p>';
+
+    wrap.innerHTML = html;
+    if (!urls.length) return;
 
     const strip = document.getElementById('preview-strip');
     strip.querySelectorAll('.preview-item').forEach(function (item) {
@@ -308,12 +325,13 @@ document.addEventListener('DOMContentLoaded', function () {
         item.classList.remove('drag-over');
         const targetIndex = Number(item.dataset.index);
         if (draggedPreviewIndex === null || draggedPreviewIndex === targetIndex) return;
+        const visible = urls.map(filenameFromPreviewUrl);
         const reordered = urls.slice();
         const [moved] = reordered.splice(draggedPreviewIndex, 1);
         reordered.splice(targetIndex, 0, moved);
         draggedPreviewIndex = null;
-        renderPreviewStrip(orderId, reordered);
-        savePreviewOrder(orderId, reordered.map(filenameFromPreviewUrl));
+        renderPreviewStrip(orderId, reordered, null);
+        savePreviewOrder(orderId, reordered.map(filenameFromPreviewUrl), visible);
       });
     });
   }
@@ -322,9 +340,10 @@ document.addEventListener('DOMContentLoaded', function () {
     const strip = document.getElementById('preview-strip');
     const urls = Array.from(strip.querySelectorAll('.preview-item img')).map(function (img) { return img.getAttribute('src'); });
     if (urls.length <= 1) return; // last photo — button isn't even rendered in this case
+    const visible = urls.map(filenameFromPreviewUrl);
     urls.splice(index, 1);
-    renderPreviewStrip(currentPreviewOrderId, urls);
-    savePreviewOrder(currentPreviewOrderId, urls.map(filenameFromPreviewUrl));
+    renderPreviewStrip(currentPreviewOrderId, urls, null);
+    savePreviewOrder(currentPreviewOrderId, urls.map(filenameFromPreviewUrl), visible);
   };
 
   window.resetPreviewOrder = function (orderId) {
@@ -332,11 +351,40 @@ document.addEventListener('DOMContentLoaded', function () {
     loadMediaPreview(orderId);
   };
 
-  function savePreviewOrder(orderId, filenames) {
+  // Uploads one or more photos straight into Content Ops for this task
+  // (on top of whatever's pulled from Drive) and refreshes the preview —
+  // the new photo(s) land at the end of the strip, ready to drag
+  // wherever they belong.
+  window.uploadPreviewPhotos = function (orderId, input) {
+    const files = input.files;
+    if (!files || !files.length) return;
+    const statusEl = document.getElementById('preview-upload-status');
+    const formData = new FormData();
+    Array.from(files).forEach(function (f) { formData.append('photos', f); });
+    if (statusEl) statusEl.textContent = 'Uploading…';
+    fetch('/orders/' + orderId + '/upload-media', { method: 'POST', body: formData })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        input.value = '';
+        if (!data.ok) {
+          alert(data.error || "Couldn't upload that photo.");
+          loadMediaPreview(orderId);
+          return;
+        }
+        loadMediaPreview(orderId);
+      })
+      .catch(function () {
+        input.value = '';
+        alert('Network error uploading photo — try again.');
+        loadMediaPreview(orderId);
+      });
+  };
+
+  function savePreviewOrder(orderId, filenames, visible) {
     fetch('/orders/' + orderId + '/set-media-order', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filenames: filenames })
+      body: JSON.stringify({ filenames: filenames, visible: visible || filenames })
     }).catch(function () {
       // Best-effort autosave — if this one request fails, the next publish
       // just falls back to whatever selection/order was last saved
