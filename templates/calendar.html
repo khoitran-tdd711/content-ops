@@ -75,6 +75,29 @@
   .platform-chip:has(input:checked) { border-color: var(--accent); background: var(--accent-tint); filter: none; }
   .platform-chip[data-platform="instagram"] { --accent: #C13584; --accent-tint: rgba(193,53,132,.12); }
   .platform-chip[data-platform="linkedin"] { --accent: #0A66C2; --accent-tint: rgba(10,102,194,.12); }
+
+  /* FullCalendar ships its own light-themed defaults via these CSS custom
+     properties (grid lines, day headers, buttons, the "today" highlight)
+     -- our own --bg/--card/--border/--text variables don't reach inside
+     it automatically, so night mode needs to hand FullCalendar its own
+     dark values explicitly. */
+  [data-theme="dark"] #calendar {
+    --fc-page-bg-color: var(--card);
+    --fc-neutral-bg-color: var(--bg);
+    --fc-neutral-text-color: var(--text);
+    --fc-border-color: var(--border);
+    --fc-button-text-color: var(--text);
+    --fc-button-bg-color: var(--card);
+    --fc-button-border-color: var(--border);
+    --fc-button-hover-bg-color: var(--bg);
+    --fc-button-hover-border-color: var(--border);
+    --fc-button-active-bg-color: var(--bg);
+    --fc-button-active-border-color: var(--border);
+    --fc-today-bg-color: rgba(105, 234, 155, .12);
+    --fc-highlight-color: rgba(105, 234, 155, .18);
+    --fc-list-event-hover-bg-color: var(--bg);
+    color: var(--text);
+  }
 </style>
 <div class="calendar-wide">
 <h2>Content calendar</h2>
