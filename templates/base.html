@@ -4,10 +4,31 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Content Ops{% endblock %}</title>
+  <script>
+    // Applies the boss's saved day/night preference *before* the
+    // stylesheet paints anything, so there's no flash of the wrong
+    // theme on load. Kept as a tiny inline script (not in style.css)
+    // specifically so it runs this early, ahead of the CSS link below.
+    (function () {
+      var saved = localStorage.getItem('contentOpsTheme');
+      if (saved === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+    })();
+  </script>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   {% block head %}{% endblock %}
 </head>
 <body>
+  {% macro theme_toggle_btn(extra_class) %}
+  <button type="button" class="theme-toggle {{ extra_class }}" id="theme-toggle" title="Toggle day/night view" aria-label="Toggle day/night view">
+    <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="4"/>
+      <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>
+    </svg>
+    <svg class="icon-moon" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M20.7 14.9A8.5 8.5 0 1 1 9.1 3.3a7 7 0 0 0 11.6 11.6z"/>
+    </svg>
+  </button>
+  {% endmacro %}
   {% if current_user %}
   <div class="nav">
     <a class="brand" href="{{ url_for('calendar_view') }}"><span class="brand-logo" aria-label="Akka"></span></a>
@@ -22,7 +43,10 @@
     <div class="spacer"></div>
     <span class="user">{{ current_user.name }} ({{ current_user.role }})</span>
     <a href="{{ url_for('logout') }}">Log out</a>
+    {{ theme_toggle_btn('theme-toggle-nav') }}
   </div>
+  {% else %}
+    {{ theme_toggle_btn('theme-toggle-fixed') }}
   {% endif %}
 
   <div class="container">
@@ -35,5 +59,22 @@
     {% endwith %}
     {% block content %}{% endblock %}
   </div>
+
+  <script>
+    (function () {
+      var btn = document.getElementById('theme-toggle');
+      if (!btn) return;
+      btn.addEventListener('click', function () {
+        var isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+        if (isDark) {
+          document.documentElement.removeAttribute('data-theme');
+          localStorage.setItem('contentOpsTheme', 'light');
+        } else {
+          document.documentElement.setAttribute('data-theme', 'dark');
+          localStorage.setItem('contentOpsTheme', 'dark');
+        }
+      });
+    })();
+  </script>
 </body>
 </html>
