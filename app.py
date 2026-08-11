@@ -700,6 +700,14 @@ def register_routes(app):
                 continue
             link = f"https://drive.google.com/file/d/{match['id']}/view"
             o.drive_links = link
+            # A matched link means the content is actually there and ready
+            # to review/schedule — bump it out of the default "ordered"
+            # bucket automatically so it doesn't just sit there looking
+            # untouched. Only ever moves *out of* "ordered" specifically;
+            # anything already further along (in_production, submitted,
+            # scheduled, etc.) is left exactly where it is.
+            if o.status == "ordered":
+                o.status = "ready"
             filled.append(
                 {
                     "order_id": o.id,
@@ -910,9 +918,26 @@ def register_routes(app):
     def order_set_drive_link(order_id):
         order = Order.query.get_or_404(order_id)
         order.drive_links = request.form.get("drive_links", "").strip()
+        # Same "a link showed up, so this is ready to review" rule as the
+        # Auto-fill Drive links scan — covers both this row's own inline
+        # edit and the "Find Drive links" suggestion-accept flow, since
+        # both save through this same endpoint. Only ever moves out of
+        # the default "ordered" status, and only when an actual link got
+        # set (not when the field's being cleared back to blank).
+        if order.drive_links and order.status == "ordered":
+            order.status = "ready"
         db.session.commit()
         if wants_json():
-            return {"ok": True, "open_link": order.drive_link_list[0] if order.drive_link_list else None}
+            return {
+                "ok": True,
+                "open_link": order.drive_link_list[0] if order.drive_link_list else None,
+                # Always included (not just when it changed) so the status
+                # dropdown in the next cell over stays in sync either way —
+                # harmless to "update" it to the value it already had.
+                "status": order.status,
+                "color": order.status_color,
+                "text_color": order.status_text_color,
+            }
         flash("Drive link updated.", "success")
         return redirect(request.referrer or url_for("board_view"))
 
