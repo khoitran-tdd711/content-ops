@@ -254,6 +254,7 @@ def register_routes(app):
             "calendar.html",
             producers=producers,
             platforms=PLATFORMS,
+            board_statuses=BOARD_STATUSES,
             status_meta_json=json.dumps(status_meta),
         )
 
