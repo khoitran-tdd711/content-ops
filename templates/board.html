@@ -226,7 +226,7 @@
           {% if current_user.is_boss %}
           <form method="post" action="{{ url_for('order_set_status', order_id=o.id) }}" style="margin:0;display:inline-block"
                 onsubmit="return false" data-order-id="{{ o.id }}">
-            <select name="status" onchange="ajaxSubmitRow(this.form)"
+            <select name="status" id="status-select-{{ o.id }}" onchange="ajaxSubmitRow(this.form)"
                     style="width:150px;padding:4px 8px;font-size:13px;font-weight:600;color:{{ o.status_text_color }};background:{{ o.status_color }};border:none;margin:0">
               {% if o.status not in board_statuses %}
                 <option value="{{ o.status }}" selected>{{ o.status_label }} (current)</option>
@@ -455,10 +455,22 @@ function flashNear(form, text, isError) {
 }
 
 function applyRowUpdate(form, data) {
-  const statusSelect = form.querySelector('select[name="status"]');
+  // Looked up by id (not just within this one field's own <form>) since
+  // some actions that can change status live in a different cell/form
+  // entirely — e.g. saving a Drive link can auto-advance "Ordered" to
+  // "Ready" once it's matched, and that update needs to reach the status
+  // dropdown sitting in its own separate form in the next cell over.
+  const statusSelect = document.getElementById('status-select-' + form.dataset.orderId)
+    || form.querySelector('select[name="status"]');
   if (statusSelect && data.color) {
     statusSelect.style.background = data.color;
     statusSelect.style.color = data.text_color;
+    if (data.status && statusSelect.value !== data.status) {
+      // The auto-advance case: the option for "ready" is always present
+      // (it's one of BOARD_STATUSES), so this is safe even though the
+      // dropdown wasn't the one that triggered the save.
+      statusSelect.value = data.status;
+    }
   }
   if (Object.prototype.hasOwnProperty.call(data, 'open_link')) {
     const openWrap = document.getElementById('drive-open-' + form.dataset.orderId);
