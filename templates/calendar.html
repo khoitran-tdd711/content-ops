@@ -482,7 +482,7 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   const calendar = new FullCalendar.Calendar(calendarEl, {
-    initialView: 'dayGridMonth',
+    initialView: 'dayGridWeek', // opens on the current week, not the whole month
     height: 'auto',
     editable: true,
     firstDay: 1, // Monday, not Sunday
