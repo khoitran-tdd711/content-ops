@@ -159,7 +159,18 @@
 
 <dialog id="event-modal" style="border:none;border-radius:20px;padding:0;width:640px;max-width:92vw;max-height:88vh;overflow-y:auto">
   <div class="card" style="margin:0;border:none">
-    <h3 id="event-modal-title" style="margin:0 0 14px"></h3>
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+      <h3 id="event-modal-title" style="margin:0 0 14px;flex:1;min-width:0"></h3>
+      <!-- No name attr on purpose -- this lives outside the publish form
+           logically (it saves itself immediately on change, same as the
+           Board's own status dropdown), so it must never get swept into
+           that form's own POST body even if a future edit moves it
+           inside the <form> by mistake. -->
+      <select id="event-modal-status-select" style="width:150px;margin:0;flex-shrink:0;font-size:13px;font-weight:600;border:none">
+        {% for s in board_statuses %}<option value="{{ s }}">{{ STATUS_LABELS[s] }}</option>{% endfor %}
+      </select>
+    </div>
+    <p id="event-modal-status-note" class="muted" style="margin:-8px 0 12px;font-size:12px"></p>
     <div id="event-modal-preview"></div>
     <form id="event-modal-publish-form" method="post">
       <label>Publish date &amp; time</label>
@@ -206,8 +217,17 @@ document.addEventListener('DOMContentLoaded', function () {
 
   // Per-status label/color, same as the Board and the legend above the
   // grid — used to render the "In this range: Ordered 10 · Scheduled 20 ·
-  // Published 100" summary bar once a custom date range is picked.
+  // Published 100" summary bar once a custom date range is picked, and to
+  // color the status dropdown in the publish popup below.
   const STATUS_META = {{ status_meta_json | safe }};
+
+  function applyStatusSelectColors(select, status) {
+    const meta = STATUS_META[status] || STATUS_META.ordered;
+    if (meta) {
+      select.style.background = meta.color;
+      select.style.color = meta.textColor;
+    }
+  }
 
   function activeBuckets() {
     return Array.from(filterBoxes).filter(cb => cb.checked).map(cb => cb.value);
@@ -581,6 +601,32 @@ document.addEventListener('DOMContentLoaded', function () {
       document.getElementById('event-modal-publish-form').action = '/orders/' + info.event.id + '/publish-now';
       document.getElementById('event-modal-caption-status').textContent = '';
       document.getElementById('btn-generate-caption').dataset.orderId = info.event.id;
+
+      const statusSelect = document.getElementById('event-modal-status-select');
+      statusSelect.dataset.orderId = info.event.id;
+      // Most tasks are one of BOARD_STATUSES (the dropdown's own static
+      // options), but a few statuses only ever get set automatically by
+      // the producer submit/review flow (submitted, to_modify, failed,
+      // sent_manually) and normally aren't in that list — same edge case
+      // the Board's own dropdown handles by injecting a labeled "(current)"
+      // option on the fly so it's never silently mis-shown as something
+      // else, e.g. "Ordered."
+      const previousExtra = statusSelect.querySelector('option[data-extra="1"]');
+      if (previousExtra) previousExtra.remove();
+      const currentStatus = props.status || 'ordered';
+      const hasOption = Array.from(statusSelect.options).some(function (o) { return o.value === currentStatus; });
+      if (!hasOption) {
+        const meta = STATUS_META[currentStatus];
+        const opt = document.createElement('option');
+        opt.value = currentStatus;
+        opt.textContent = (meta ? meta.label : currentStatus) + ' (current)';
+        opt.dataset.extra = '1';
+        statusSelect.insertBefore(opt, statusSelect.firstChild);
+      }
+      statusSelect.value = currentStatus;
+      applyStatusSelectColors(statusSelect, currentStatus);
+      document.getElementById('event-modal-status-note').textContent = '';
+
       loadMediaPreview(info.event.id);
       modal.showModal();
     },
@@ -722,6 +768,46 @@ document.addEventListener('DOMContentLoaded', function () {
     dateFromInput.value = '';
     dateToInput.value = '';
     calendar.refetchEvents();
+  });
+
+  // Publish popup's own status dropdown — saves through the exact same
+  // /orders/<id>/set-status endpoint the Board's row-level status select
+  // uses. Since both just write to the same Order row, a change made here
+  // shows up on the Board (and vice versa) the next time either page
+  // loads — there's no separate "sync" step, they're already the same
+  // data. Independent of the "Confirm & publish" form below it.
+  const statusSelect = document.getElementById('event-modal-status-select');
+  const statusNoteEl = document.getElementById('event-modal-status-note');
+  statusSelect.addEventListener('change', function () {
+    const orderId = statusSelect.dataset.orderId;
+    const newStatus = statusSelect.value;
+    statusSelect.disabled = true;
+    fetch('/orders/' + orderId + '/set-status', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      body: 'status=' + encodeURIComponent(newStatus)
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        statusSelect.disabled = false;
+        if (!data.ok) {
+          statusNoteEl.style.color = '#DC4C4C';
+          statusNoteEl.textContent = data.error || "Couldn't update the status.";
+          return;
+        }
+        applyStatusSelectColors(statusSelect, data.status);
+        statusNoteEl.style.color = '';
+        statusNoteEl.textContent = 'Status updated.';
+        calendar.refetchEvents();
+      })
+      .catch(function () {
+        statusSelect.disabled = false;
+        statusNoteEl.style.color = '#DC4C4C';
+        statusNoteEl.textContent = 'Network error — try again.';
+      });
   });
 
   calendar.render();
