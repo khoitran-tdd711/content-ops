@@ -75,6 +75,8 @@
   .platform-chip:has(input:checked) { border-color: var(--accent); background: var(--accent-tint); filter: none; }
   .platform-chip[data-platform="instagram"] { --accent: #C13584; --accent-tint: rgba(193,53,132,.12); }
   .platform-chip[data-platform="linkedin"] { --accent: #0A66C2; --accent-tint: rgba(10,102,194,.12); }
+  .platform-chip[data-platform="tiktok"] { --accent: #010101; --accent-tint: rgba(1,1,1,.08); }
+  [data-theme="dark"] .platform-chip[data-platform="tiktok"] { --accent: #EAF3EF; --accent-tint: rgba(234,243,239,.12); }
 
   /* FullCalendar ships its own light-themed defaults via these CSS custom
      properties (grid lines, day headers, buttons, the "today" highlight)
@@ -152,6 +154,13 @@
     </svg>
     LinkedIn
   </label>
+  <label class="platform-chip" data-platform="tiktok">
+    <input type="checkbox" class="cal-platform-filter" value="tiktok" checked>
+    <svg viewBox="0 0 24 24" fill="currentColor">
+      <path d="M16.6 5.8a4.4 4.4 0 0 1-3-1.4v9.9a4.9 4.9 0 1 1-4.2-4.9v2.4a2.5 2.5 0 1 0 1.8 2.4V2h2.3a4.4 4.4 0 0 0 3.1 3.8v2z"/>
+    </svg>
+    TikTok
+  </label>
 </div>
 
 <div id="calendar"></div>
@@ -187,6 +196,21 @@
       <label>First comment (optional)</label>
       <textarea id="event-modal-first-comment" name="first_comment" placeholder="Auto-posted right after publishing — Facebook/Instagram/LinkedIn/YouTube only" style="min-height:60px"></textarea>
 
+      <!-- TikTok-only, shown/hidden by eventClick below. No name attrs on
+           purpose -- this saves itself immediately via /set-tiktok-sound
+           (same pattern as the status select above), so it must never get
+           swept into this form's own POST body. -->
+      <div id="event-modal-tiktok-sound" style="display:none;margin-top:10px">
+        <label>TikTok sound (optional)</label>
+        <p id="tiktok-sound-current" class="muted" style="margin:0 0 6px;font-size:12px">No sound selected.</p>
+        <div style="display:flex;gap:8px;margin-bottom:8px">
+          <button type="button" class="btn secondary" id="btn-browse-tiktok-sounds" style="padding:4px 10px;font-size:12px">Browse trending sounds</button>
+          <button type="button" class="btn secondary" id="btn-remove-tiktok-sound" style="padding:4px 10px;font-size:12px;display:none">Remove sound</button>
+        </div>
+        <div id="tiktok-sound-results" style="display:none;max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:4px;margin-bottom:8px"></div>
+        <p id="tiktok-sound-status" class="muted" style="margin:0 0 8px;font-size:12px"></p>
+      </div>
+
       <p id="event-modal-status" class="muted" style="margin:8px 0 0;font-size:12px"></p>
 
       <div style="display:flex;gap:10px;margin-top:14px">
@@ -214,6 +238,12 @@ document.addEventListener('DOMContentLoaded', function () {
   const dateClearBtn = document.getElementById('cal-date-clear');
   const summaryEl = document.getElementById('cal-status-summary');
   const modal = document.getElementById('event-modal');
+  const tiktokSoundSection = document.getElementById('event-modal-tiktok-sound');
+  const tiktokSoundCurrent = document.getElementById('tiktok-sound-current');
+  const tiktokBrowseBtn = document.getElementById('btn-browse-tiktok-sounds');
+  const tiktokRemoveBtn = document.getElementById('btn-remove-tiktok-sound');
+  const tiktokResultsEl = document.getElementById('tiktok-sound-results');
+  const tiktokStatusEl = document.getElementById('tiktok-sound-status');
 
   // Per-status label/color, same as the Board and the legend above the
   // grid — used to render the "In this range: Ordered 10 · Scheduled 20 ·
@@ -330,6 +360,101 @@ document.addEventListener('DOMContentLoaded', function () {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
   }
+
+  // TikTok "Add sound" -- browse OneUp's trending-sound chart for this
+  // task's mapped account and attach one via /set-tiktok-sound. Only shown
+  // for platform === 'tiktok' (see eventClick below); every other platform
+  // never even renders this section.
+  function updateTiktokSoundDisplay(sound) {
+    if (sound && sound.music_title) {
+      tiktokSoundCurrent.textContent = 'Selected: ' + sound.music_title + (sound.music_author ? ' — ' + sound.music_author : '');
+      tiktokRemoveBtn.style.display = '';
+    } else {
+      tiktokSoundCurrent.textContent = 'No sound selected.';
+      tiktokRemoveBtn.style.display = 'none';
+    }
+  }
+
+  function renderTiktokSoundResults(orderId, sounds) {
+    if (!sounds.length) {
+      tiktokResultsEl.style.display = 'block';
+      tiktokResultsEl.innerHTML = '<p class="muted" style="margin:4px;font-size:12px">No trending sounds found right now.</p>';
+      return;
+    }
+    tiktokResultsEl.style.display = 'block';
+    tiktokResultsEl.innerHTML = sounds.map(function (s, i) {
+      return '<div style="display:flex;align-items:center;gap:8px;padding:6px 4px;border-bottom:1px solid var(--border)">' +
+        (s.music_thumbnail ? '<img src="' + s.music_thumbnail + '" style="width:36px;height:36px;border-radius:6px;object-fit:cover;flex-shrink:0">' : '') +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escapeHtml(s.music_title || 'Untitled sound') + '</div>' +
+          '<div class="muted" style="font-size:11px">' + escapeHtml(s.music_author || '') + '</div>' +
+        '</div>' +
+        '<button type="button" class="btn secondary" style="padding:2px 8px;font-size:11px;flex-shrink:0" data-sound-index="' + i + '">Use this sound</button>' +
+      '</div>';
+    }).join('');
+    tiktokResultsEl.querySelectorAll('button[data-sound-index]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        saveTiktokSound(orderId, sounds[Number(btn.dataset.soundIndex)]);
+      });
+    });
+  }
+
+  function saveTiktokSound(orderId, sound) {
+    tiktokStatusEl.style.color = '';
+    tiktokStatusEl.textContent = 'Saving…';
+    fetch('/orders/' + orderId + '/set-tiktok-sound', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sound: sound || null })
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data.ok) {
+          tiktokStatusEl.style.color = '#DC4C4C';
+          tiktokStatusEl.textContent = data.error || "Couldn't save that sound.";
+          return;
+        }
+        updateTiktokSoundDisplay(data.sound);
+        tiktokResultsEl.style.display = 'none';
+        tiktokResultsEl.innerHTML = '';
+        tiktokStatusEl.textContent = sound ? 'Sound saved — applies on next publish.' : 'Sound removed.';
+      })
+      .catch(function () {
+        tiktokStatusEl.style.color = '#DC4C4C';
+        tiktokStatusEl.textContent = 'Network error — try again.';
+      });
+  }
+
+  tiktokBrowseBtn.addEventListener('click', function () {
+    const orderId = tiktokBrowseBtn.dataset.orderId;
+    const originalText = tiktokBrowseBtn.textContent;
+    tiktokBrowseBtn.disabled = true;
+    tiktokBrowseBtn.textContent = 'Loading…';
+    tiktokStatusEl.style.color = '';
+    tiktokStatusEl.textContent = '';
+    fetch('/orders/' + orderId + '/tiktok-trending-sounds')
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        tiktokBrowseBtn.disabled = false;
+        tiktokBrowseBtn.textContent = originalText;
+        if (!data.ok) {
+          tiktokStatusEl.style.color = '#DC4C4C';
+          tiktokStatusEl.textContent = data.error || "Couldn't load trending sounds.";
+          return;
+        }
+        renderTiktokSoundResults(orderId, data.sounds || []);
+      })
+      .catch(function () {
+        tiktokBrowseBtn.disabled = false;
+        tiktokBrowseBtn.textContent = originalText;
+        tiktokStatusEl.style.color = '#DC4C4C';
+        tiktokStatusEl.textContent = 'Network error — try again.';
+      });
+  });
+
+  tiktokRemoveBtn.addEventListener('click', function () {
+    saveTiktokSound(tiktokBrowseBtn.dataset.orderId, null);
+  });
 
   // Shows what will actually get sent to OneUp — same Drive link handling
   // as the real publish, just read-only (well, minus the drag/remove
@@ -597,6 +722,18 @@ document.addEventListener('DOMContentLoaded', function () {
       document.getElementById('event-modal-datetime').value = props.scheduledAt || (info.event.startStr.slice(0, 10) + 'T12:00');
       document.getElementById('event-modal-caption').value = props.caption || '';
       document.getElementById('event-modal-first-comment').value = props.firstComment || '';
+
+      if (props.platform === 'tiktok') {
+        tiktokSoundSection.style.display = 'block';
+        tiktokBrowseBtn.dataset.orderId = info.event.id;
+        tiktokResultsEl.style.display = 'none';
+        tiktokResultsEl.innerHTML = '';
+        tiktokStatusEl.textContent = '';
+        updateTiktokSoundDisplay(props.tiktokSound || null);
+      } else {
+        tiktokSoundSection.style.display = 'none';
+      }
+
       document.getElementById('event-modal-modify').href = info.event.url;
       document.getElementById('event-modal-publish-form').action = '/orders/' + info.event.id + '/publish-now';
       document.getElementById('event-modal-caption-status').textContent = '';
