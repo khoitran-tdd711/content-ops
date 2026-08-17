@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timezone
 
 from flask_sqlalchemy import SQLAlchemy
@@ -178,6 +179,13 @@ class Order(db.Model):
     # original behavior). Filenames no longer found in Drive are just
     # skipped rather than erroring, in case the source zip changes later.
     media_order = db.Column(db.Text, nullable=True)
+    # The boss's chosen TikTok trending sound for this post (from OneUp's
+    # gettiktoktrendingsound lookup) -- a small JSON object with the exact
+    # fields OneUp's scheduleimagepost needs to attach it (title, sound_id,
+    # url, thumbnail, author). Null/blank means "post with no added sound",
+    # the original behavior. Only meaningful for platform == "tiktok";
+    # harmless if set on any other platform (never read/sent for those).
+    tiktok_sound = db.Column(db.Text, nullable=True)
 
     created_at = db.Column(db.DateTime, default=now)
     updated_at = db.Column(db.DateTime, default=now, onupdate=now)
@@ -207,6 +215,19 @@ class Order(db.Model):
             if chunk:
                 parts.append(chunk)
         return parts
+
+    @property
+    def tiktok_sound_dict(self):
+        """Parsed tiktok_sound JSON, or None if unset/unparseable. Centralized
+        here so every caller (JSON API, publish step) handles a corrupt/old
+        value the same safe way instead of each doing their own try/except."""
+        if not self.tiktok_sound:
+            return None
+        try:
+            parsed = json.loads(self.tiktok_sound)
+        except (ValueError, TypeError):
+            return None
+        return parsed if isinstance(parsed, dict) else None
 
 
 class OrderMedia(db.Model):
