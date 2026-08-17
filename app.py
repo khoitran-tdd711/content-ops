@@ -56,6 +56,23 @@ from models import (
 ALLOWED_UPLOAD_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "gif"}
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024  # same ceiling as the Claude vision API elsewhere
 
+# Best-guess country for OneUp's "trending sounds" chart, picked from the
+# order's own language so the boss doesn't have to pick a country by hand
+# every time. Falls back to "US" (the broadest/most active chart) for any
+# language not listed here or when the order has no language set.
+LANGUAGE_TO_TIKTOK_COUNTRY = {
+    "English": "US",
+    "Spanish": "ES",
+    "Italian": "IT",
+    "French": "FR",
+    "Dutch": "NL",
+    "German": "DE",
+    "Polish": "PL",
+    "Portuguese": "PT",
+    "Romanian": "RO",
+    "Greek": "GR",
+}
+
 
 PARIS_TZ = ZoneInfo("Europe/Paris")
 
@@ -120,6 +137,7 @@ def create_app():
         _ensure_column("order", "oneup_post_id", "INTEGER")
         _ensure_column("order", "media_order", "TEXT")
         _ensure_column("order", "first_comment", "TEXT")
+        _ensure_column("order", "tiktok_sound", "TEXT")
 
     register_context(app)
     register_routes(app)
@@ -297,6 +315,7 @@ def register_routes(app):
                     "scheduledAt": o.scheduled_at.strftime("%Y-%m-%dT%H:%M") if o.scheduled_at else None,
                     "projectTitle": o.title or "(untitled)",
                     "accountLabel": get_account_nickname(o.platform, o.language),
+                    "tiktokSound": o.tiktok_sound_dict,
                 }
             )
         return {"events": events}
@@ -344,43 +363,67 @@ def register_routes(app):
         """Create a new task/order — used by the "+ New task" modal on the
         Board. Pub date is optional; leave it blank and set it later.
 
-        The language field also accepts the special value "__all__" ("All
-        available languages" in the dropdown) — instead of one task with no
-        language set, this creates one task per language in LANGUAGES, all
-        identical otherwise (same title/platform/pub date/etc.), so the boss
-        doesn't have to create one task then duplicate it N times and set
-        each language by hand."""
+        Platform is now a checkbox group (field name "platforms", one value
+        per box checked) rather than a single dropdown, so the boss can pick
+        any specific combination -- e.g. just Instagram + TikTok -- not only
+        one platform or literally every platform. The language field still
+        also accepts the special value "__all__" ("All available languages"
+        in its dropdown). Either way, this creates one task per combination
+        (every platform checked x every language selected), all identical
+        otherwise (same title/pub date/etc.), so the boss doesn't have to
+        create one task then duplicate it N times and set each
+        platform/language by hand."""
         producers = User.query.filter_by(role="producer").order_by(User.name).all()
         if request.method == "POST":
             already_published = request.form.get("already_published") == "yes"
             producer_id = request.form.get("producer_id") or None
             language_input = request.form.get("language") or None
             languages_to_create = LANGUAGES if language_input == "__all__" else [language_input]
-            platform = request.form.get("platform") or "instagram"
+
+            platform_inputs = [p for p in request.form.getlist("platforms") if p]
+            if not platform_inputs:
+                # Back-compat fallback: nothing checked (or an older caller
+                # still posting the single "platform" field) -- same default
+                # this route has always used rather than silently creating a
+                # platform-less task.
+                legacy = request.form.get("platform")
+                platform_inputs = [legacy] if legacy else ["instagram"]
+            if "__all__" in platform_inputs:
+                platforms_to_create = list(PLATFORMS)
+            else:
+                seen = set()
+                platforms_to_create = [
+                    p for p in platform_inputs if p in PLATFORMS and not (p in seen or seen.add(p))
+                ]
+                if not platforms_to_create:
+                    platforms_to_create = ["instagram"]
+
             scheduled_str = request.form.get("scheduled_at")
             scheduled_at = datetime.strptime(scheduled_str, "%Y-%m-%dT%H:%M") if scheduled_str else None
 
-            for language in languages_to_create:
-                order = Order(
-                    platform=platform,
-                    language=language,
-                    content_type=request.form.get("content_type", "carousel"),
-                    quantity=int(request.form.get("quantity", 1) or 1),
-                    title=request.form.get("title", "").strip(),
-                    caption=request.form.get("caption", "").strip(),
-                    first_comment=request.form.get("first_comment", "").strip() or None,
-                    due_date=scheduled_at.date() if scheduled_at else None,
-                    scheduled_at=scheduled_at,
-                    date_ordered=date.today(),
-                    producer_id=int(producer_id) if producer_id else None,
-                    created_by_id=g.user.id,
-                    drive_links=request.form.get("drive_links", "").strip(),
-                    status="published" if already_published else "ordered",
-                )
-                db.session.add(order)
+            for platform in platforms_to_create:
+                for language in languages_to_create:
+                    order = Order(
+                        platform=platform,
+                        language=language,
+                        content_type=request.form.get("content_type", "carousel"),
+                        quantity=int(request.form.get("quantity", 1) or 1),
+                        title=request.form.get("title", "").strip(),
+                        caption=request.form.get("caption", "").strip(),
+                        first_comment=request.form.get("first_comment", "").strip() or None,
+                        due_date=scheduled_at.date() if scheduled_at else None,
+                        scheduled_at=scheduled_at,
+                        date_ordered=date.today(),
+                        producer_id=int(producer_id) if producer_id else None,
+                        created_by_id=g.user.id,
+                        drive_links=request.form.get("drive_links", "").strip(),
+                        status="published" if already_published else "ordered",
+                    )
+                    db.session.add(order)
             db.session.commit()
-            if len(languages_to_create) > 1:
-                flash(f"Created {len(languages_to_create)} new tasks — one per language.", "success")
+            total_created = len(platforms_to_create) * len(languages_to_create)
+            if total_created > 1:
+                flash(f"Created {total_created} new tasks — one per platform/language combination.", "success")
             else:
                 flash("New order created.", "success")
             return redirect(url_for("board_view"))
@@ -1334,6 +1377,54 @@ def register_routes(app):
         media = OrderMedia.query.filter_by(id=media_id, order_id=order_id).first_or_404()
         return Response(media.data, mimetype=media.mime_type or "image/jpeg")
 
+    @app.route("/orders/<int:order_id>/tiktok-trending-sounds")
+    @boss_required
+    def order_tiktok_trending_sounds(order_id):
+        """Calendar publish popup's "Browse trending sounds" control, for
+        TikTok tasks only — looks up OneUp's currently-trending sound chart
+        so the boss can pick one right here, instead of hunting a sound_id
+        down in OneUp or TikTok directly. country_code is guessed from the
+        task's language (see LANGUAGE_TO_TIKTOK_COUNTRY)."""
+        order = Order.query.get_or_404(order_id)
+        api_key = get_oneup_api_key()
+        if not api_key:
+            return {"ok": False, "error": "OneUp isn't connected yet (see Settings)."}, 400
+        social_account_id = _resolve_tiktok_social_account_id(order)
+        if not social_account_id:
+            return {"ok": False, "error": "No OneUp TikTok account is mapped yet — set it up in Settings first."}, 400
+        country_code = LANGUAGE_TO_TIKTOK_COUNTRY.get(order.language, "US")
+        try:
+            sounds = oneup.get_tiktok_trending_sound(api_key, social_account_id, country_code=country_code)
+        except oneup.OneUpError as e:
+            return {"ok": False, "error": f"OneUp couldn't fetch trending sounds: {e}"}, 502
+        return {"ok": True, "country_code": country_code, "sounds": sounds}
+
+    @app.route("/orders/<int:order_id>/set-tiktok-sound", methods=["POST"])
+    @boss_required
+    def order_set_tiktok_sound(order_id):
+        """Saves (or clears) the trending sound the boss picked for this
+        TikTok task. Body is JSON: {"sound": {...}} using the same field
+        names get_tiktok_trending_sound() returns, or {} / no "sound" key to
+        remove a previously-picked sound. Only re-published by the next
+        actual publish — picking a sound here doesn't touch OneUp until
+        then."""
+        order = Order.query.get_or_404(order_id)
+        payload = request.get_json(silent=True) or {}
+        sound = payload.get("sound")
+        if sound and isinstance(sound, dict):
+            cleaned = {
+                "music_title": str(sound.get("music_title") or "")[:200],
+                "music_author": str(sound.get("music_author") or "")[:200],
+                "music_sound_id": str(sound.get("music_sound_id") or "")[:200],
+                "music_url": str(sound.get("music_url") or "")[:500],
+                "music_thumbnail": str(sound.get("music_thumbnail") or "")[:500],
+            }
+            order.tiktok_sound = json.dumps(cleaned)
+        else:
+            order.tiktok_sound = None
+        db.session.commit()
+        return {"ok": True, "sound": order.tiktok_sound_dict}
+
     @app.route("/orders/<int:order_id>/generate-caption", methods=["POST"])
     @boss_required
     def order_generate_caption(order_id):
@@ -1513,6 +1604,26 @@ def register_routes(app):
 
 def get_oneup_api_key():
     return Setting.get("oneup_api_key") or Config.ONEUP_API_KEY_DEFAULT
+
+
+def _resolve_tiktok_social_account_id(order):
+    """Same per-language-then-per-platform account lookup publish_via_oneup()
+    uses, but just for TikTok, and returning a single social_network_id —
+    that's all gettiktoktrendingsound() needs (one specific connected TikTok
+    account to read its trending chart for, not the whole list a post might
+    actually go out to). Returns None if nothing's mapped yet."""
+    social_id_raw = None
+    if order.language:
+        social_id_raw = Setting.get(f"oneup_social_id_tiktok_{order.language}")
+    if not social_id_raw:
+        social_id_raw = Setting.get("oneup_social_id_tiktok")
+    if not social_id_raw:
+        return None
+    try:
+        ids = json.loads(social_id_raw) if social_id_raw.startswith("[") else [social_id_raw]
+    except (ValueError, TypeError):
+        return None
+    return ids[0] if ids else None
 
 
 def get_account_nickname(platform, language):
@@ -1806,6 +1917,7 @@ def publish_via_oneup(order):
             image_urls=image_urls,
             title=order.title or None,
             first_comment=order.first_comment or None,
+            tiktok_music=order.tiktok_sound_dict if order.platform == "tiktok" else None,
         )
         order.status = "scheduled"
         order.oneup_response = json.dumps(result)
