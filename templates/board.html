@@ -313,10 +313,21 @@
     </div>
     <form method="post" action="{{ url_for('order_import') }}" style="margin-top:10px"
           onsubmit="var b=this.querySelector('button[type=submit]'); b.disabled=true; b.textContent='Creating…';">
-      <label>Platform</label>
-      <select name="platform">
-        {% for p in platforms %}<option value="{{ p }}" {{ 'selected' if p == 'instagram' }}>{{ p|title }}</option>{% endfor %}
-      </select>
+      <label>Platform(s)</label>
+      <div id="new-task-platforms" style="display:flex;flex-wrap:wrap;gap:14px;margin:0 0 6px">
+        {% for p in platforms %}
+        <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:500;font-size:13px;cursor:pointer">
+          <input type="checkbox" name="platforms" value="{{ p }}" {{ 'checked' if p == 'instagram' }} style="width:auto;margin:0">
+          {{ p|title }}
+        </label>
+        {% endfor %}
+      </div>
+      <p class="muted" style="margin:0 0 14px;font-size:12px">
+        Pick one or more —
+        <a href="#" onclick="document.querySelectorAll('#new-task-platforms input').forEach(function(c){c.checked=true}); return false;">select all</a> ·
+        <a href="#" onclick="document.querySelectorAll('#new-task-platforms input').forEach(function(c){c.checked=false}); return false;">clear</a>.
+        Checking several creates one task per platform (crossed with the language below, if that's also set to "All").
+      </p>
 
       <label>Language (optional)</label>
       <select name="language">
