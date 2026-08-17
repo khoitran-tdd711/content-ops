@@ -80,6 +80,56 @@ def list_social_accounts(api_key):
     return r.json()
 
 
+def get_tiktok_trending_sound(api_key, social_account_id, country_code="US", date_range="7DAY", genre="ALL"):
+    """Looks up currently-trending TikTok sounds via OneUp's own trending-sound
+    charts, so the boss can pick one to attach to a post from inside Content
+    Ops instead of going to OneUp/TikTok directly.
+
+    date_range: one of "1DAY", "7DAY", "30DAY", "90DAY".
+    Returns a list of dicts already reshaped to exactly the fields
+    schedule_image_post(tiktok_music=...) expects, per OneUp's own
+    field-mapping table -- plus "artist"/"thumbnail_url"/"duration" kept
+    around for display in the picker UI.
+    """
+    try:
+        r = requests.get(
+            f"{BASE_URL}/gettiktoktrendingsound",
+            params={
+                "apiKey": api_key,
+                "social_account_id": social_account_id,
+                "country_code": country_code,
+                "date_range": date_range,
+                "genre": genre,
+            },
+            timeout=TIMEOUT,
+        )
+        r.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        raise OneUpError(f"Couldn't reach OneUp: {e}")
+    try:
+        payload = r.json()
+    except ValueError:
+        raise OneUpError(f"Non-JSON response from OneUp (HTTP {r.status_code}): {r.text[:300]}")
+    if payload.get("error"):
+        raise OneUpError(payload.get("message", "OneUp API error"))
+
+    sounds = []
+    for item in payload.get("data", []) or []:
+        clip = item.get("trending_song_clip") or {}
+        sounds.append(
+            {
+                "music_title": item.get("commercial_music_name") or "",
+                "music_author": item.get("artist") or "",
+                "music_sound_id": clip.get("song_clip_id") or "",
+                "music_url": clip.get("preview_url") or item.get("preview_url") or "",
+                "music_thumbnail": item.get("thumbnail_url") or "",
+                # Display-only extras, not sent to scheduleimagepost:
+                "duration": clip.get("duration") or item.get("duration"),
+            }
+        )
+    return sounds
+
+
 def schedule_image_post(
     api_key,
     category_id,
@@ -89,6 +139,7 @@ def schedule_image_post(
     image_urls,
     title=None,
     first_comment=None,
+    tiktok_music=None,
 ):
     """
     scheduled_date_time: 'YYYY-MM-DD HH:MM' (24h) string, local to your OneUp
@@ -101,6 +152,12 @@ def schedule_image_post(
         right after publishing -- per their docs this only actually takes
         effect on Facebook, Instagram, LinkedIn, and YouTube. Harmless to
         send for any other platform; OneUp just ignores it there.
+    tiktok_music: optional dict with the trending-sound fields OneUp wants
+        (music_title, music_sound_id, music_url, music_thumbnail,
+        music_author -- see get_tiktok_trending_sound()). Sent as the
+        `tiktok` platform-specific param; OneUp only reads it for TikTok
+        posts, so it's harmless (just ignored) to send for any other
+        platform, but callers should only pass it for TikTok orders.
     """
     data = {
         "apiKey": api_key,
@@ -114,6 +171,16 @@ def schedule_image_post(
         data["title"] = title
     if first_comment:
         data["first_comment"] = first_comment
+    if tiktok_music:
+        # OneUp's Create Image Post docs nest trending-sound fields under a
+        # "musicOption" object inside the "tiktok" param, but their own Get
+        # TikTok Trending Sound doc's worked example for image posts sends
+        # the same fields flat, directly under "tiktok" (no musicOption
+        # wrapper). We send both shapes at once -- cheap, and guarantees
+        # this works regardless of which doc page is the stale one.
+        tiktok_payload = dict(tiktok_music)
+        tiktok_payload["musicOption"] = dict(tiktok_music)
+        data["tiktok"] = json.dumps(tiktok_payload)
 
     attempt = 0
     while True:
