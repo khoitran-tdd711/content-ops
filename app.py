@@ -73,6 +73,15 @@ LANGUAGE_TO_TIKTOK_COUNTRY = {
     "Greek": "GR",
 }
 
+# The curated genre subset the sound picker's dropdown offers (OneUp
+# supports ~100+ genre values, way too many for a useful dropdown) --
+# whatever the client sends is validated against this list server-side,
+# falling back to "ALL" for anything else.
+TIKTOK_SOUND_GENRES = {
+    "ALL", "POP", "HIP_HOP_RAP", "R_B_SOUL", "ELECTRONIC", "ROCK",
+    "LATIN", "COUNTRY", "ALTERNATIVE_INDIE", "K_POP",
+}
+
 
 PARIS_TZ = ZoneInfo("Europe/Paris")
 
@@ -138,6 +147,7 @@ def create_app():
         _ensure_column("order", "media_order", "TEXT")
         _ensure_column("order", "first_comment", "TEXT")
         _ensure_column("order", "tiktok_sound", "TEXT")
+        _ensure_column("order", "instagram_sound", "TEXT")
 
     register_context(app)
     register_routes(app)
@@ -316,6 +326,9 @@ def register_routes(app):
                     "projectTitle": o.title or "(untitled)",
                     "accountLabel": get_account_nickname(o.platform, o.language),
                     "tiktokSound": o.tiktok_sound_dict,
+                    "contentType": o.content_type or "carousel",
+                    "instagramSound": o.instagram_sound_dict,
+                    "videoUrl": o.drive_link_list[0] if o.drive_link_list else None,
                 }
             )
         return {"events": events}
@@ -1384,7 +1397,11 @@ def register_routes(app):
         TikTok tasks only — looks up OneUp's currently-trending sound chart
         so the boss can pick one right here, instead of hunting a sound_id
         down in OneUp or TikTok directly. country_code is guessed from the
-        task's language (see LANGUAGE_TO_TIKTOK_COUNTRY)."""
+        task's language (see LANGUAGE_TO_TIKTOK_COUNTRY). OneUp has no
+        keyword search for TikTok sounds, so an optional ?genre= override
+        (validated against the curated list the picker's dropdown offers)
+        is the closest thing to narrowing results down before the boss
+        filters further client-side."""
         order = Order.query.get_or_404(order_id)
         api_key = get_oneup_api_key()
         if not api_key:
@@ -1393,11 +1410,14 @@ def register_routes(app):
         if not social_account_id:
             return {"ok": False, "error": "No OneUp TikTok account is mapped yet — set it up in Settings first."}, 400
         country_code = LANGUAGE_TO_TIKTOK_COUNTRY.get(order.language, "US")
+        genre = request.args.get("genre") or "ALL"
+        if genre not in TIKTOK_SOUND_GENRES:
+            genre = "ALL"
         try:
-            sounds = oneup.get_tiktok_trending_sound(api_key, social_account_id, country_code=country_code)
+            sounds = oneup.get_tiktok_trending_sound(api_key, social_account_id, country_code=country_code, genre=genre)
         except oneup.OneUpError as e:
             return {"ok": False, "error": f"OneUp couldn't fetch trending sounds: {e}"}, 502
-        return {"ok": True, "country_code": country_code, "sounds": sounds}
+        return {"ok": True, "country_code": country_code, "genre": genre, "sounds": sounds}
 
     @app.route("/orders/<int:order_id>/set-tiktok-sound", methods=["POST"])
     @boss_required
@@ -1424,6 +1444,49 @@ def register_routes(app):
             order.tiktok_sound = None
         db.session.commit()
         return {"ok": True, "sound": order.tiktok_sound_dict}
+
+    @app.route("/orders/<int:order_id>/instagram-trending-sounds")
+    @boss_required
+    def order_instagram_trending_sounds(order_id):
+        """Calendar publish popup's Instagram sound search, for video/Reel
+        Instagram tasks only. Unlike TikTok's endpoint, this one supports a
+        real keyword search (?q=) -- leave it blank for general trending
+        sounds instead."""
+        order = Order.query.get_or_404(order_id)
+        api_key = get_oneup_api_key()
+        if not api_key:
+            return {"ok": False, "error": "OneUp isn't connected yet (see Settings)."}, 400
+        social_account_id = _resolve_instagram_social_account_id(order)
+        if not social_account_id:
+            return {"ok": False, "error": "No OneUp Instagram account is mapped yet — set it up in Settings first."}, 400
+        search_query = (request.args.get("q") or "").strip() or None
+        try:
+            sounds = oneup.get_instagram_trending_sound(api_key, social_account_id, search_query=search_query)
+        except oneup.OneUpError as e:
+            return {"ok": False, "error": f"OneUp couldn't fetch sounds: {e}"}, 502
+        return {"ok": True, "sounds": sounds}
+
+    @app.route("/orders/<int:order_id>/set-instagram-sound", methods=["POST"])
+    @boss_required
+    def order_set_instagram_sound(order_id):
+        """Saves (or clears) the trending sound picked for this Instagram
+        video/Reel task. Body is JSON: {"sound": {...}} using the field
+        names get_instagram_trending_sound() returns, or {} / no "sound"
+        key to remove a previously-picked sound."""
+        order = Order.query.get_or_404(order_id)
+        payload = request.get_json(silent=True) or {}
+        sound = payload.get("sound")
+        if sound and isinstance(sound, dict):
+            cleaned = {
+                "music_title": str(sound.get("music_title") or "")[:200],
+                "music_sound_id": str(sound.get("music_sound_id") or "")[:200],
+                "music_url": str(sound.get("music_url") or "")[:500],
+            }
+            order.instagram_sound = json.dumps(cleaned)
+        else:
+            order.instagram_sound = None
+        db.session.commit()
+        return {"ok": True, "sound": order.instagram_sound_dict}
 
     @app.route("/orders/<int:order_id>/generate-caption", methods=["POST"])
     @boss_required
@@ -1617,6 +1680,25 @@ def _resolve_tiktok_social_account_id(order):
         social_id_raw = Setting.get(f"oneup_social_id_tiktok_{order.language}")
     if not social_id_raw:
         social_id_raw = Setting.get("oneup_social_id_tiktok")
+    if not social_id_raw:
+        return None
+    try:
+        ids = json.loads(social_id_raw) if social_id_raw.startswith("[") else [social_id_raw]
+    except (ValueError, TypeError):
+        return None
+    return ids[0] if ids else None
+
+
+def _resolve_instagram_social_account_id(order):
+    """Same per-language-then-per-platform account lookup as
+    _resolve_tiktok_social_account_id, but for Instagram -- used by the
+    Instagram trending-sound browse route (only needs one account id, not
+    the full list a post might go out to)."""
+    social_id_raw = None
+    if order.language:
+        social_id_raw = Setting.get(f"oneup_social_id_instagram_{order.language}")
+    if not social_id_raw:
+        social_id_raw = Setting.get("oneup_social_id_instagram")
     if not social_id_raw:
         return None
     try:
@@ -1889,6 +1971,51 @@ def publish_via_oneup(order):
     if not category_id or not social_id_raw:
         who = order.platform.title() + (f" / {order.language}" if order.language else "")
         return False, f"No OneUp account is mapped for {who} yet. Set it up in Settings first."
+
+    # Video/Reel/Story orders go through OneUp's separate video endpoint
+    # (schedulevideopost) instead of the image/carousel path below --
+    # that's the only way to attach Instagram sound (Instagram audio is
+    # video-only on OneUp's end), and it also lets TikTok sound work the
+    # same way for a real TikTok video as it already does for a TikTok
+    # photo-mode post. The video file itself is just the order's own Drive
+    # link, passed straight through -- OneUp accepts a normal Drive share
+    # link directly for video_url, no unzip/re-hosting needed like photos.
+    if (order.content_type or "carousel") in ("video", "reel", "story"):
+        video_url = order.drive_link_list[0] if order.drive_link_list else None
+        if not video_url:
+            return False, "This is a video/Reel task but has no Drive link to the video file yet — add one on the Board first."
+        try:
+            social_ids = json.loads(social_id_raw) if social_id_raw.startswith("[") else [social_id_raw]
+            result = oneup.schedule_video_post(
+                api_key=api_key,
+                category_id=category_id,
+                social_network_ids=social_ids,
+                scheduled_date_time=order.scheduled_at.strftime("%Y-%m-%d %H:%M"),
+                content=order.caption or "",
+                video_url=video_url,
+                title=order.title or None,
+                first_comment=order.first_comment or None,
+                instagram_music=order.instagram_sound_dict if order.platform == "instagram" else None,
+                tiktok_music=order.tiktok_sound_dict if order.platform == "tiktok" else None,
+            )
+            order.status = "scheduled"
+            order.oneup_response = json.dumps(result)
+            scheduled_time_str = order.scheduled_at.strftime("%Y-%m-%d %H:%M")
+            order.oneup_post_id = oneup.find_scheduled_post_id(api_key, order.caption or "", scheduled_time_str)
+            db.session.commit()
+            return True, "Sent to OneUp and scheduled."
+        except oneup.OneUpError as e:
+            order.status = "failed"
+            order.oneup_response = str(e)
+            order.oneup_post_id = None
+            db.session.commit()
+            return False, f"OneUp rejected this post: {e}"
+        except Exception as e:  # noqa: BLE001 - final safety net (network blips, etc.) -- never 500
+            order.status = "failed"
+            order.oneup_response = str(e)
+            order.oneup_post_id = None
+            db.session.commit()
+            return False, f"Something went wrong sending this to OneUp: {e}"
 
     try:
         image_urls = expand_drive_links(order)
