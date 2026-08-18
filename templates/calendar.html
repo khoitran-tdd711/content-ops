@@ -209,6 +209,10 @@
         </div>
         <div id="tiktok-sound-results" style="display:none;max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:4px;margin-bottom:8px"></div>
         <p id="tiktok-sound-status" class="muted" style="margin:0 0 8px;font-size:12px"></p>
+        <!-- One shared player for every row in the results list below, so
+             picking a new preview always stops whatever was playing before
+             instead of stacking up overlapping clips. -->
+        <audio id="tiktok-sound-preview-audio" preload="none"></audio>
       </div>
 
       <p id="event-modal-status" class="muted" style="margin:8px 0 0;font-size:12px"></p>
@@ -238,12 +242,18 @@ document.addEventListener('DOMContentLoaded', function () {
   const dateClearBtn = document.getElementById('cal-date-clear');
   const summaryEl = document.getElementById('cal-status-summary');
   const modal = document.getElementById('event-modal');
+  // Covers every way the popup can close -- Cancel, a successful publish
+  // (modal.close() in the submit handler below), or hitting Escape -- so a
+  // sound preview never keeps playing after the popup is gone.
+  modal.addEventListener('close', function () { stopTiktokPreview(); });
   const tiktokSoundSection = document.getElementById('event-modal-tiktok-sound');
   const tiktokSoundCurrent = document.getElementById('tiktok-sound-current');
   const tiktokBrowseBtn = document.getElementById('btn-browse-tiktok-sounds');
   const tiktokRemoveBtn = document.getElementById('btn-remove-tiktok-sound');
   const tiktokResultsEl = document.getElementById('tiktok-sound-results');
   const tiktokStatusEl = document.getElementById('tiktok-sound-status');
+  const tiktokPreviewAudio = document.getElementById('tiktok-sound-preview-audio');
+  let tiktokPreviewButton = null; // the ▶/⏸ button currently "owning" the shared player, if any
 
   // Per-status label/color, same as the Board and the legend above the
   // grid — used to render the "In this range: Ordered 10 · Scheduled 20 ·
@@ -375,7 +385,21 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   }
 
+  // Stops whatever's currently playing and resets that row's button back to
+  // ▶ -- called before starting a new clip, and whenever the list itself
+  // gets re-rendered/cleared (browsing again, saving a pick, closing the
+  // popup) so a preview never keeps playing after its row is gone.
+  function stopTiktokPreview() {
+    tiktokPreviewAudio.pause();
+    tiktokPreviewAudio.removeAttribute('src');
+    if (tiktokPreviewButton) {
+      tiktokPreviewButton.textContent = '▶';
+      tiktokPreviewButton = null;
+    }
+  }
+
   function renderTiktokSoundResults(orderId, sounds) {
+    stopTiktokPreview();
     if (!sounds.length) {
       tiktokResultsEl.style.display = 'block';
       tiktokResultsEl.innerHTML = '<p class="muted" style="margin:4px;font-size:12px">No trending sounds found right now.</p>';
@@ -389,6 +413,9 @@ document.addEventListener('DOMContentLoaded', function () {
           '<div style="font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escapeHtml(s.music_title || 'Untitled sound') + '</div>' +
           '<div class="muted" style="font-size:11px">' + escapeHtml(s.music_author || '') + '</div>' +
         '</div>' +
+        (s.music_url
+          ? '<button type="button" class="btn secondary" title="Preview this sound" style="padding:2px 8px;font-size:11px;flex-shrink:0;width:28px" data-preview-index="' + i + '">▶</button>'
+          : '') +
         '<button type="button" class="btn secondary" style="padding:2px 8px;font-size:11px;flex-shrink:0" data-sound-index="' + i + '">Use this sound</button>' +
       '</div>';
     }).join('');
@@ -397,7 +424,32 @@ document.addEventListener('DOMContentLoaded', function () {
         saveTiktokSound(orderId, sounds[Number(btn.dataset.soundIndex)]);
       });
     });
+    // Preview playback -- one shared <audio> element for the whole list.
+    // Clicking a playing row's button pauses it; clicking a different row
+    // stops whatever was playing and starts the new one.
+    tiktokResultsEl.querySelectorAll('button[data-preview-index]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        const sound = sounds[Number(btn.dataset.previewIndex)];
+        if (tiktokPreviewButton === btn) {
+          stopTiktokPreview();
+          return;
+        }
+        stopTiktokPreview();
+        tiktokPreviewAudio.src = sound.music_url;
+        tiktokPreviewAudio.play().catch(function () {
+          tiktokStatusEl.style.color = '#DC4C4C';
+          tiktokStatusEl.textContent = "Couldn't play that preview.";
+        });
+        btn.textContent = '⏸';
+        tiktokPreviewButton = btn;
+      });
+    });
   }
+
+  // If the clip finishes on its own, flip its button back to ▶ too.
+  tiktokPreviewAudio.addEventListener('ended', function () {
+    stopTiktokPreview();
+  });
 
   function saveTiktokSound(orderId, sound) {
     tiktokStatusEl.style.color = '';
