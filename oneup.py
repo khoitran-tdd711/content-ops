@@ -103,15 +103,28 @@ def get_tiktok_trending_sound(api_key, social_account_id, country_code="US", dat
             },
             timeout=TIMEOUT,
         )
-        r.raise_for_status()
     except requests.exceptions.RequestException as e:
         raise OneUpError(f"Couldn't reach OneUp: {e}")
+    # Deliberately NOT calling r.raise_for_status() before this -- some
+    # narrower genre/country/date_range combinations (e.g. a genre with no
+    # trending songs for that country right now) make OneUp's own backend
+    # return an HTTP 500 instead of a clean empty list. raise_for_status()
+    # would raise immediately on that and swallow any JSON body OneUp still
+    # sent along with it, surfacing only a generic "500 Server Error"
+    # instead of OneUp's own (often more specific) message. Parsing the
+    # body first, regardless of status code, gets the real message through
+    # whenever OneUp includes one.
     try:
         payload = r.json()
     except ValueError:
-        raise OneUpError(f"Non-JSON response from OneUp (HTTP {r.status_code}): {r.text[:300]}")
-    if payload.get("error"):
-        raise OneUpError(payload.get("message", "OneUp API error"))
+        raise OneUpError(f"OneUp returned an unreadable response (HTTP {r.status_code}): {r.text[:300]}")
+    if r.status_code >= 400 or payload.get("error"):
+        raise OneUpError(
+            payload.get("message")
+            or f"OneUp API error (HTTP {r.status_code}) for genre={genre}, country_code={country_code}, "
+            f"date_range={date_range} -- this specific combination may have no trending data right now; "
+            f"try 'All genres' or a longer date range."
+        )
 
     sounds = []
     for item in payload.get("data", []) or []:
@@ -146,22 +159,26 @@ def get_instagram_trending_sound(api_key, social_account_id, search_query=None):
         params["search_query"] = search_query
     try:
         r = requests.get(f"{BASE_URL}/getinstagramtrendingsound", params=params, timeout=TIMEOUT)
-        r.raise_for_status()
     except requests.exceptions.RequestException as e:
         raise OneUpError(f"Couldn't reach OneUp: {e}")
+    # Same reasoning as get_tiktok_trending_sound: parse the body before
+    # checking the status code, so a 500 with a JSON error message still
+    # surfaces that message instead of a generic "500 Server Error".
     try:
         payload = r.json()
     except ValueError:
-        raise OneUpError(f"Non-JSON response from OneUp (HTTP {r.status_code}): {r.text[:300]}")
+        raise OneUpError(f"OneUp returned an unreadable response (HTTP {r.status_code}): {r.text[:300]}")
 
     # OneUp's own sample response for this endpoint is a bare JSON array
     # (not the usual {"message": ..., "data": [...]} envelope every other
     # endpoint here uses) -- handle both shapes defensively in case that
     # changes or varies by account.
     if isinstance(payload, dict):
-        if payload.get("error"):
-            raise OneUpError(payload.get("message", "OneUp API error"))
+        if r.status_code >= 400 or payload.get("error"):
+            raise OneUpError(payload.get("message") or f"OneUp API error (HTTP {r.status_code})")
         items = payload.get("data", [])
+    elif r.status_code >= 400:
+        raise OneUpError(f"OneUp API error (HTTP {r.status_code}): {r.text[:300]}")
     else:
         items = payload
 
