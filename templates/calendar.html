@@ -199,21 +199,58 @@
       <!-- TikTok-only, shown/hidden by eventClick below. No name attrs on
            purpose -- this saves itself immediately via /set-tiktok-sound
            (same pattern as the status select above), so it must never get
-           swept into this form's own POST body. -->
+           swept into this form's own POST body. Works for both TikTok
+           photo-mode posts and real TikTok videos -- sound applies either
+           way. OneUp has no keyword search for TikTok sounds (only
+           trending charts by country/genre/date range), so the genre
+           picker + the filter box below (which only filters what's
+           already loaded, not a live catalog search) are the closest
+           practical equivalent. -->
       <div id="event-modal-tiktok-sound" style="display:none;margin-top:10px">
         <label>TikTok sound (optional)</label>
         <p id="tiktok-sound-current" class="muted" style="margin:0 0 6px;font-size:12px">No sound selected.</p>
-        <div style="display:flex;gap:8px;margin-bottom:8px">
+        <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+          <select id="tiktok-sound-genre" style="width:170px;margin:0;font-size:12px">
+            <option value="ALL">All genres</option>
+            <option value="POP">Pop</option>
+            <option value="HIP_HOP_RAP">Hip Hop/Rap</option>
+            <option value="R_B_SOUL">R&amp;B/Soul</option>
+            <option value="ELECTRONIC">Electronic</option>
+            <option value="ROCK">Rock</option>
+            <option value="LATIN">Latin</option>
+            <option value="COUNTRY">Country</option>
+            <option value="ALTERNATIVE_INDIE">Alternative/Indie</option>
+            <option value="K_POP">K-Pop</option>
+          </select>
           <button type="button" class="btn secondary" id="btn-browse-tiktok-sounds" style="padding:4px 10px;font-size:12px">Browse trending sounds</button>
           <button type="button" class="btn secondary" id="btn-remove-tiktok-sound" style="padding:4px 10px;font-size:12px;display:none">Remove sound</button>
         </div>
+        <input type="text" id="tiktok-sound-filter" placeholder="Filter the results below by title or artist…" style="display:none;margin:0 0 8px;font-size:12px">
         <div id="tiktok-sound-results" style="display:none;max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:4px;margin-bottom:8px"></div>
         <p id="tiktok-sound-status" class="muted" style="margin:0 0 8px;font-size:12px"></p>
-        <!-- One shared player for every row in the results list below, so
-             picking a new preview always stops whatever was playing before
-             instead of stacking up overlapping clips. -->
-        <audio id="tiktok-sound-preview-audio" preload="none"></audio>
       </div>
+
+      <!-- Instagram-only, and only for video/Reel/Story tasks -- Instagram
+           image/carousel posts don't support attached audio at all on
+           OneUp's end. Unlike TikTok, OneUp's Instagram sound lookup
+           supports a real keyword search, so this is a genuine search
+           box, not just a filter over trending results. -->
+      <div id="event-modal-instagram-sound" style="display:none;margin-top:10px">
+        <label>Instagram sound (optional)</label>
+        <p id="instagram-sound-current" class="muted" style="margin:0 0 6px;font-size:12px">No sound selected.</p>
+        <div style="display:flex;gap:8px;margin-bottom:8px">
+          <input type="text" id="instagram-sound-search" placeholder="Search sounds… (leave blank for trending)" style="flex:1;margin:0;font-size:12px">
+          <button type="button" class="btn secondary" id="btn-browse-instagram-sounds" style="padding:4px 10px;font-size:12px;flex-shrink:0">Search</button>
+          <button type="button" class="btn secondary" id="btn-remove-instagram-sound" style="padding:4px 10px;font-size:12px;display:none;flex-shrink:0">Remove sound</button>
+        </div>
+        <div id="instagram-sound-results" style="display:none;max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:4px;margin-bottom:8px"></div>
+        <p id="instagram-sound-status" class="muted" style="margin:0 0 8px;font-size:12px"></p>
+      </div>
+
+      <!-- One shared player for every sound row in either section above --
+           starting a new preview always stops whatever was playing
+           before, instead of stacking up overlapping clips. -->
+      <audio id="sound-preview-audio" preload="none"></audio>
 
       <p id="event-modal-status" class="muted" style="margin:8px 0 0;font-size:12px"></p>
 
@@ -245,15 +282,35 @@ document.addEventListener('DOMContentLoaded', function () {
   // Covers every way the popup can close -- Cancel, a successful publish
   // (modal.close() in the submit handler below), or hitting Escape -- so a
   // sound preview never keeps playing after the popup is gone.
-  modal.addEventListener('close', function () { stopTiktokPreview(); });
+  modal.addEventListener('close', function () { stopSoundPreview(); });
   const tiktokSoundSection = document.getElementById('event-modal-tiktok-sound');
   const tiktokSoundCurrent = document.getElementById('tiktok-sound-current');
+  const tiktokGenreSelect = document.getElementById('tiktok-sound-genre');
   const tiktokBrowseBtn = document.getElementById('btn-browse-tiktok-sounds');
   const tiktokRemoveBtn = document.getElementById('btn-remove-tiktok-sound');
+  const tiktokFilterInput = document.getElementById('tiktok-sound-filter');
   const tiktokResultsEl = document.getElementById('tiktok-sound-results');
   const tiktokStatusEl = document.getElementById('tiktok-sound-status');
-  const tiktokPreviewAudio = document.getElementById('tiktok-sound-preview-audio');
-  let tiktokPreviewButton = null; // the ▶/⏸ button currently "owning" the shared player, if any
+  let lastTiktokSounds = []; // the full fetched list -- tiktokFilterInput filters a copy of this, client-side
+
+  const instagramSoundSection = document.getElementById('event-modal-instagram-sound');
+  const instagramSoundCurrent = document.getElementById('instagram-sound-current');
+  const instagramSearchInput = document.getElementById('instagram-sound-search');
+  const instagramBrowseBtn = document.getElementById('btn-browse-instagram-sounds');
+  const instagramRemoveBtn = document.getElementById('btn-remove-instagram-sound');
+  const instagramResultsEl = document.getElementById('instagram-sound-results');
+  const instagramStatusEl = document.getElementById('instagram-sound-status');
+
+  // Content types that actually publish as a real video (as opposed to a
+  // photo/carousel via scheduleimagepost) -- only these can carry
+  // Instagram sound, and only these use the Drive-video-link readout
+  // instead of the photo preview strip.
+  const VIDEO_LIKE_CONTENT_TYPES = ['video', 'reel', 'story'];
+
+  // One shared <audio> element + "currently playing" button reference for
+  // every sound row in either the TikTok or Instagram results list.
+  const soundPreviewAudio = document.getElementById('sound-preview-audio');
+  let soundPreviewButton = null; // the ▶/⏸ button currently "owning" the shared player, if any
 
   // Per-status label/color, same as the Board and the legend above the
   // grid — used to render the "In this range: Ordered 10 · Scheduled 20 ·
@@ -371,10 +428,13 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   }
 
-  // TikTok "Add sound" -- browse OneUp's trending-sound chart for this
-  // task's mapped account and attach one via /set-tiktok-sound. Only shown
-  // for platform === 'tiktok' (see eventClick below); every other platform
-  // never even renders this section.
+  // TikTok/Instagram "Add sound" -- browse OneUp's sound lookup for this
+  // task's mapped account and attach one via /set-<platform>-sound.
+  // TikTok's section is shown for platform === 'tiktok' regardless of
+  // content type (sound works the same for a TikTok photo-mode post or a
+  // real TikTok video); Instagram's is shown only for platform ===
+  // 'instagram' AND a video-like content type, since Instagram image/
+  // carousel posts can't carry audio at all. See eventClick below.
   function updateTiktokSoundDisplay(sound) {
     if (sound && sound.music_title) {
       tiktokSoundCurrent.textContent = 'Selected: ' + sound.music_title + (sound.music_author ? ' — ' + sound.music_author : '');
@@ -385,33 +445,48 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   }
 
-  // Stops whatever's currently playing and resets that row's button back to
-  // ▶ -- called before starting a new clip, and whenever the list itself
-  // gets re-rendered/cleared (browsing again, saving a pick, closing the
-  // popup) so a preview never keeps playing after its row is gone.
-  function stopTiktokPreview() {
-    tiktokPreviewAudio.pause();
-    tiktokPreviewAudio.removeAttribute('src');
-    if (tiktokPreviewButton) {
-      tiktokPreviewButton.textContent = '▶';
-      tiktokPreviewButton = null;
+  function updateInstagramSoundDisplay(sound) {
+    if (sound && sound.music_title) {
+      instagramSoundCurrent.textContent = 'Selected: ' + sound.music_title;
+      instagramRemoveBtn.style.display = '';
+    } else {
+      instagramSoundCurrent.textContent = 'No sound selected.';
+      instagramRemoveBtn.style.display = 'none';
     }
   }
 
-  function renderTiktokSoundResults(orderId, sounds) {
-    stopTiktokPreview();
+  // Stops whatever's currently playing and resets that row's button back to
+  // ▶ -- called before starting a new clip, and whenever a results list
+  // gets re-rendered/cleared (browsing again, saving a pick, closing the
+  // popup) so a preview never keeps playing after its row is gone.
+  function stopSoundPreview() {
+    soundPreviewAudio.pause();
+    soundPreviewAudio.removeAttribute('src');
+    if (soundPreviewButton) {
+      soundPreviewButton.textContent = '▶';
+      soundPreviewButton = null;
+    }
+  }
+  soundPreviewAudio.addEventListener('ended', function () { stopSoundPreview(); });
+
+  // Renders one results list (TikTok's or Instagram's) into `container`,
+  // wiring up each row's preview button (shared player) and "Use this
+  // sound" button (calls onUse(orderId, sound)). showThumbnail is false
+  // for Instagram, since that endpoint's response has no thumbnail field.
+  function renderSoundList(container, sounds, orderId, onUse, statusEl, showThumbnail, emptyMessage) {
+    stopSoundPreview();
     if (!sounds.length) {
-      tiktokResultsEl.style.display = 'block';
-      tiktokResultsEl.innerHTML = '<p class="muted" style="margin:4px;font-size:12px">No trending sounds found right now.</p>';
+      container.style.display = 'block';
+      container.innerHTML = '<p class="muted" style="margin:4px;font-size:12px">' + escapeHtml(emptyMessage) + '</p>';
       return;
     }
-    tiktokResultsEl.style.display = 'block';
-    tiktokResultsEl.innerHTML = sounds.map(function (s, i) {
+    container.style.display = 'block';
+    container.innerHTML = sounds.map(function (s, i) {
       return '<div style="display:flex;align-items:center;gap:8px;padding:6px 4px;border-bottom:1px solid var(--border)">' +
-        (s.music_thumbnail ? '<img src="' + s.music_thumbnail + '" style="width:36px;height:36px;border-radius:6px;object-fit:cover;flex-shrink:0">' : '') +
+        (showThumbnail && s.music_thumbnail ? '<img src="' + s.music_thumbnail + '" style="width:36px;height:36px;border-radius:6px;object-fit:cover;flex-shrink:0">' : '') +
         '<div style="flex:1;min-width:0">' +
           '<div style="font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escapeHtml(s.music_title || 'Untitled sound') + '</div>' +
-          '<div class="muted" style="font-size:11px">' + escapeHtml(s.music_author || '') + '</div>' +
+          (s.music_author ? '<div class="muted" style="font-size:11px">' + escapeHtml(s.music_author) + '</div>' : '') +
         '</div>' +
         (s.music_url
           ? '<button type="button" class="btn secondary" title="Preview this sound" style="padding:2px 8px;font-size:11px;flex-shrink:0;width:28px" data-preview-index="' + i + '">▶</button>'
@@ -419,37 +494,58 @@ document.addEventListener('DOMContentLoaded', function () {
         '<button type="button" class="btn secondary" style="padding:2px 8px;font-size:11px;flex-shrink:0" data-sound-index="' + i + '">Use this sound</button>' +
       '</div>';
     }).join('');
-    tiktokResultsEl.querySelectorAll('button[data-sound-index]').forEach(function (btn) {
+    container.querySelectorAll('button[data-sound-index]').forEach(function (btn) {
       btn.addEventListener('click', function () {
-        saveTiktokSound(orderId, sounds[Number(btn.dataset.soundIndex)]);
+        onUse(orderId, sounds[Number(btn.dataset.soundIndex)]);
       });
     });
-    // Preview playback -- one shared <audio> element for the whole list.
+    // Preview playback -- shared <audio> element across both lists.
     // Clicking a playing row's button pauses it; clicking a different row
     // stops whatever was playing and starts the new one.
-    tiktokResultsEl.querySelectorAll('button[data-preview-index]').forEach(function (btn) {
+    container.querySelectorAll('button[data-preview-index]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         const sound = sounds[Number(btn.dataset.previewIndex)];
-        if (tiktokPreviewButton === btn) {
-          stopTiktokPreview();
+        if (soundPreviewButton === btn) {
+          stopSoundPreview();
           return;
         }
-        stopTiktokPreview();
-        tiktokPreviewAudio.src = sound.music_url;
-        tiktokPreviewAudio.play().catch(function () {
-          tiktokStatusEl.style.color = '#DC4C4C';
-          tiktokStatusEl.textContent = "Couldn't play that preview.";
+        stopSoundPreview();
+        soundPreviewAudio.src = sound.music_url;
+        soundPreviewAudio.play().catch(function () {
+          statusEl.style.color = '#DC4C4C';
+          statusEl.textContent = "Couldn't play that preview.";
         });
         btn.textContent = '⏸';
-        tiktokPreviewButton = btn;
+        soundPreviewButton = btn;
       });
     });
   }
 
-  // If the clip finishes on its own, flip its button back to ▶ too.
-  tiktokPreviewAudio.addEventListener('ended', function () {
-    stopTiktokPreview();
-  });
+  // TikTok: re-renders from lastTiktokSounds, filtered by the filter box --
+  // client-side only (OneUp has no keyword search for TikTok sounds), so
+  // this only narrows down what's already loaded, not a live catalog
+  // search.
+  function applyTiktokFilter(orderId) {
+    const term = (tiktokFilterInput.value || '').trim().toLowerCase();
+    const filtered = term
+      ? lastTiktokSounds.filter(function (s) {
+          return (s.music_title || '').toLowerCase().includes(term) || (s.music_author || '').toLowerCase().includes(term);
+        })
+      : lastTiktokSounds;
+    renderSoundList(tiktokResultsEl, filtered, orderId, saveTiktokSound, tiktokStatusEl, true, 'No trending sounds found right now.');
+    tiktokFilterInput.style.display = lastTiktokSounds.length ? '' : 'none';
+  }
+
+  function renderTiktokSoundResults(orderId, sounds) {
+    lastTiktokSounds = sounds;
+    tiktokFilterInput.value = '';
+    applyTiktokFilter(orderId);
+  }
+
+  function renderInstagramSoundResults(orderId, sounds) {
+    renderSoundList(instagramResultsEl, sounds, orderId, saveInstagramSound, instagramStatusEl, false,
+      'No sounds found — try a different search, or leave it blank for trending.');
+  }
 
   function saveTiktokSound(orderId, sound) {
     tiktokStatusEl.style.color = '';
@@ -469,6 +565,7 @@ document.addEventListener('DOMContentLoaded', function () {
         updateTiktokSoundDisplay(data.sound);
         tiktokResultsEl.style.display = 'none';
         tiktokResultsEl.innerHTML = '';
+        tiktokFilterInput.style.display = 'none';
         tiktokStatusEl.textContent = sound ? 'Sound saved — applies on next publish.' : 'Sound removed.';
       })
       .catch(function () {
@@ -477,14 +574,41 @@ document.addEventListener('DOMContentLoaded', function () {
       });
   }
 
+  function saveInstagramSound(orderId, sound) {
+    instagramStatusEl.style.color = '';
+    instagramStatusEl.textContent = 'Saving…';
+    fetch('/orders/' + orderId + '/set-instagram-sound', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sound: sound || null })
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data.ok) {
+          instagramStatusEl.style.color = '#DC4C4C';
+          instagramStatusEl.textContent = data.error || "Couldn't save that sound.";
+          return;
+        }
+        updateInstagramSoundDisplay(data.sound);
+        instagramResultsEl.style.display = 'none';
+        instagramResultsEl.innerHTML = '';
+        instagramStatusEl.textContent = sound ? 'Sound saved — applies on next publish.' : 'Sound removed.';
+      })
+      .catch(function () {
+        instagramStatusEl.style.color = '#DC4C4C';
+        instagramStatusEl.textContent = 'Network error — try again.';
+      });
+  }
+
   tiktokBrowseBtn.addEventListener('click', function () {
     const orderId = tiktokBrowseBtn.dataset.orderId;
+    const genre = tiktokGenreSelect.value || 'ALL';
     const originalText = tiktokBrowseBtn.textContent;
     tiktokBrowseBtn.disabled = true;
     tiktokBrowseBtn.textContent = 'Loading…';
     tiktokStatusEl.style.color = '';
     tiktokStatusEl.textContent = '';
-    fetch('/orders/' + orderId + '/tiktok-trending-sounds')
+    fetch('/orders/' + orderId + '/tiktok-trending-sounds?genre=' + encodeURIComponent(genre))
       .then(function (r) { return r.json(); })
       .then(function (data) {
         tiktokBrowseBtn.disabled = false;
@@ -508,6 +632,54 @@ document.addEventListener('DOMContentLoaded', function () {
     saveTiktokSound(tiktokBrowseBtn.dataset.orderId, null);
   });
 
+  let tiktokFilterDebounce;
+  tiktokFilterInput.addEventListener('input', function () {
+    clearTimeout(tiktokFilterDebounce);
+    tiktokFilterDebounce = setTimeout(function () {
+      applyTiktokFilter(tiktokBrowseBtn.dataset.orderId);
+    }, 150);
+  });
+
+  function runInstagramSoundSearch() {
+    const orderId = instagramBrowseBtn.dataset.orderId;
+    const q = (instagramSearchInput.value || '').trim();
+    const originalText = instagramBrowseBtn.textContent;
+    instagramBrowseBtn.disabled = true;
+    instagramBrowseBtn.textContent = 'Searching…';
+    instagramStatusEl.style.color = '';
+    instagramStatusEl.textContent = '';
+    fetch('/orders/' + orderId + '/instagram-trending-sounds' + (q ? '?q=' + encodeURIComponent(q) : ''))
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        instagramBrowseBtn.disabled = false;
+        instagramBrowseBtn.textContent = originalText;
+        if (!data.ok) {
+          instagramStatusEl.style.color = '#DC4C4C';
+          instagramStatusEl.textContent = data.error || "Couldn't load sounds.";
+          return;
+        }
+        renderInstagramSoundResults(orderId, data.sounds || []);
+      })
+      .catch(function () {
+        instagramBrowseBtn.disabled = false;
+        instagramBrowseBtn.textContent = originalText;
+        instagramStatusEl.style.color = '#DC4C4C';
+        instagramStatusEl.textContent = 'Network error — try again.';
+      });
+  }
+
+  instagramBrowseBtn.addEventListener('click', runInstagramSoundSearch);
+  instagramSearchInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      runInstagramSoundSearch();
+    }
+  });
+
+  instagramRemoveBtn.addEventListener('click', function () {
+    saveInstagramSound(instagramBrowseBtn.dataset.orderId, null);
+  });
+
   // Shows what will actually get sent to OneUp — same Drive link handling
   // as the real publish, just read-only (well, minus the drag/remove
   // controls below, which *do* write back — see savePreviewOrder()).
@@ -527,6 +699,22 @@ document.addEventListener('DOMContentLoaded', function () {
   // order via savePreviewOrder(), not the full URL.
   function filenameFromPreviewUrl(url) {
     return url.split('/').pop();
+  }
+
+  // Video/Reel/Story tasks don't use the photo strip at all -- they
+  // publish straight from a Drive link to the actual video file (see
+  // publish_via_oneup's video branch), so this is just a read-only readout
+  // of that link instead. Edit the link itself on the Board.
+  function renderVideoLinkPreview(props) {
+    const wrap = document.getElementById('event-modal-preview');
+    if (props.videoUrl) {
+      wrap.innerHTML = '<p class="muted" style="margin:0 0 10px;font-size:12px">' +
+        'Video post — publishes from this Drive link: <a href="' + escapeHtml(props.videoUrl) + '" target="_blank" rel="noopener">' +
+        escapeHtml(props.videoUrl) + '</a>. Change it on the Board if needed.</p>';
+    } else {
+      wrap.innerHTML = '<p class="muted" style="margin:0 0 10px;font-size:12px">' +
+        'Video post — no Drive link to the video file yet. Add one on the Board before publishing.</p>';
+    }
   }
 
   function loadMediaPreview(orderId) {
@@ -775,15 +963,33 @@ document.addEventListener('DOMContentLoaded', function () {
       document.getElementById('event-modal-caption').value = props.caption || '';
       document.getElementById('event-modal-first-comment').value = props.firstComment || '';
 
+      const isVideoLike = VIDEO_LIKE_CONTENT_TYPES.includes(props.contentType || 'carousel');
+
       if (props.platform === 'tiktok') {
         tiktokSoundSection.style.display = 'block';
         tiktokBrowseBtn.dataset.orderId = info.event.id;
+        tiktokGenreSelect.value = 'ALL';
+        lastTiktokSounds = [];
+        tiktokFilterInput.value = '';
+        tiktokFilterInput.style.display = 'none';
         tiktokResultsEl.style.display = 'none';
         tiktokResultsEl.innerHTML = '';
         tiktokStatusEl.textContent = '';
         updateTiktokSoundDisplay(props.tiktokSound || null);
       } else {
         tiktokSoundSection.style.display = 'none';
+      }
+
+      if (props.platform === 'instagram' && isVideoLike) {
+        instagramSoundSection.style.display = 'block';
+        instagramBrowseBtn.dataset.orderId = info.event.id;
+        instagramSearchInput.value = '';
+        instagramResultsEl.style.display = 'none';
+        instagramResultsEl.innerHTML = '';
+        instagramStatusEl.textContent = '';
+        updateInstagramSoundDisplay(props.instagramSound || null);
+      } else {
+        instagramSoundSection.style.display = 'none';
       }
 
       document.getElementById('event-modal-modify').href = info.event.url;
@@ -816,7 +1022,11 @@ document.addEventListener('DOMContentLoaded', function () {
       applyStatusSelectColors(statusSelect, currentStatus);
       document.getElementById('event-modal-status-note').textContent = '';
 
-      loadMediaPreview(info.event.id);
+      if (isVideoLike) {
+        renderVideoLinkPreview(props);
+      } else {
+        loadMediaPreview(info.event.id);
+      }
       modal.showModal();
     },
     eventDrop: function (info) {
