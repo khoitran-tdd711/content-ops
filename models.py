@@ -186,6 +186,13 @@ class Order(db.Model):
     # the original behavior. Only meaningful for platform == "tiktok";
     # harmless if set on any other platform (never read/sent for those).
     tiktok_sound = db.Column(db.Text, nullable=True)
+    # Same idea as tiktok_sound, for Instagram -- OneUp's Instagram trending-
+    # sound lookup only returns 3 fields (title, sound_id, url; no
+    # thumbnail/author). Only meaningful for platform == "instagram" AND a
+    # video-like content_type ("video"/"reel"/"story") -- Instagram image/
+    # carousel posts don't support attached audio at all, so this is
+    # ignored (never read/sent) for those.
+    instagram_sound = db.Column(db.Text, nullable=True)
 
     created_at = db.Column(db.DateTime, default=now)
     updated_at = db.Column(db.DateTime, default=now, onupdate=now)
@@ -225,6 +232,17 @@ class Order(db.Model):
             return None
         try:
             parsed = json.loads(self.tiktok_sound)
+        except (ValueError, TypeError):
+            return None
+        return parsed if isinstance(parsed, dict) else None
+
+    @property
+    def instagram_sound_dict(self):
+        """Same idea as tiktok_sound_dict, for instagram_sound."""
+        if not self.instagram_sound:
+            return None
+        try:
+            parsed = json.loads(self.instagram_sound)
         except (ValueError, TypeError):
             return None
         return parsed if isinstance(parsed, dict) else None
