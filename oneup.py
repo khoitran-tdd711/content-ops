@@ -130,6 +130,53 @@ def get_tiktok_trending_sound(api_key, social_account_id, country_code="US", dat
     return sounds
 
 
+def get_instagram_trending_sound(api_key, social_account_id, search_query=None):
+    """Looks up Instagram trending sounds -- unlike TikTok's endpoint (only
+    trending charts by country/genre/date range), this one supports a real
+    keyword search via search_query, e.g. "game of thrones". Leave
+    search_query blank/None for general trending sounds instead.
+
+    Only meaningful for Instagram video/Reel posts (schedule_video_post) --
+    per OneUp's docs, Instagram image/carousel posts don't support attached
+    audio at all, and this endpoint only returns results for Instagram
+    accounts connected to a Facebook Business/Creator account.
+    """
+    params = {"apiKey": api_key, "social_account_id": social_account_id}
+    if search_query:
+        params["search_query"] = search_query
+    try:
+        r = requests.get(f"{BASE_URL}/getinstagramtrendingsound", params=params, timeout=TIMEOUT)
+        r.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        raise OneUpError(f"Couldn't reach OneUp: {e}")
+    try:
+        payload = r.json()
+    except ValueError:
+        raise OneUpError(f"Non-JSON response from OneUp (HTTP {r.status_code}): {r.text[:300]}")
+
+    # OneUp's own sample response for this endpoint is a bare JSON array
+    # (not the usual {"message": ..., "data": [...]} envelope every other
+    # endpoint here uses) -- handle both shapes defensively in case that
+    # changes or varies by account.
+    if isinstance(payload, dict):
+        if payload.get("error"):
+            raise OneUpError(payload.get("message", "OneUp API error"))
+        items = payload.get("data", [])
+    else:
+        items = payload
+
+    sounds = []
+    for item in items or []:
+        sounds.append(
+            {
+                "music_title": item.get("music_title") or "",
+                "music_sound_id": item.get("music_sound_id") or "",
+                "music_url": item.get("music_url") or "",
+            }
+        )
+    return sounds
+
+
 def schedule_image_post(
     api_key,
     category_id,
@@ -186,6 +233,84 @@ def schedule_image_post(
     while True:
         try:
             r = requests.post(f"{BASE_URL}/scheduleimagepost", data=data, timeout=SCHEDULE_TIMEOUT)
+            break
+        except requests.exceptions.RequestException as e:
+            if attempt >= SCHEDULE_RETRIES:
+                raise OneUpError(
+                    f"Couldn't reach OneUp after {attempt + 1} attempt(s) "
+                    f"(timeout={SCHEDULE_TIMEOUT}s): {e}"
+                )
+            attempt += 1
+
+    try:
+        payload = r.json()
+    except ValueError:
+        raise OneUpError(f"Non-JSON response from OneUp (HTTP {r.status_code}): {r.text[:300]}")
+
+    if r.status_code >= 400 or payload.get("error"):
+        raise OneUpError(payload.get("message", f"OneUp API error (HTTP {r.status_code})"))
+
+    return payload
+
+
+def schedule_video_post(
+    api_key,
+    category_id,
+    social_network_ids,
+    scheduled_date_time,
+    content,
+    video_url,
+    title=None,
+    thumbnail_url=None,
+    first_comment=None,
+    instagram_music=None,
+    tiktok_music=None,
+):
+    """
+    Schedules a real video/Reel/Story post via OneUp's separate video
+    endpoint (schedulevideopost) -- distinct from schedule_image_post's
+    scheduleimagepost, which only ever sends photos/carousels and can never
+    attach Instagram sound (Instagram audio is video-only on their end).
+
+    video_url: a direct link to a video file, OR a Google Drive share link
+        in its normal https://drive.google.com/file/d/.../view?usp=sharing
+        form -- per OneUp's own docs this is passed straight through as-is,
+        unlike image links, which get rewritten to the uc?export=view form.
+        The Drive file must still be shared as "Anyone with the link".
+    instagram_music: optional dict with music_title/music_sound_id/music_url
+        (see get_instagram_trending_sound()). Sent as instagram.musicOption;
+        only meaningful for Instagram video/Reel posts.
+    tiktok_music: optional dict, same shape/meaning as in schedule_image_post
+        -- TikTok sound works the same way whether the post is photo-mode
+        (scheduleimagepost) or a real video (this endpoint).
+    """
+    data = {
+        "apiKey": api_key,
+        "category_id": category_id,
+        "social_network_id": json.dumps(social_network_ids),
+        "scheduled_date_time": scheduled_date_time,
+        "content": content or "",
+        "video_url": video_url,
+    }
+    if title:
+        data["title"] = title
+    if thumbnail_url:
+        data["thumbnail_url"] = thumbnail_url
+    if first_comment:
+        data["first_comment"] = first_comment
+    if instagram_music:
+        data["instagram"] = json.dumps({"musicOption": dict(instagram_music)})
+    if tiktok_music:
+        # Same both-shapes hedge as schedule_image_post -- see the comment
+        # there for why.
+        tiktok_payload = dict(tiktok_music)
+        tiktok_payload["musicOption"] = dict(tiktok_music)
+        data["tiktok"] = json.dumps(tiktok_payload)
+
+    attempt = 0
+    while True:
+        try:
+            r = requests.post(f"{BASE_URL}/schedulevideopost", data=data, timeout=SCHEDULE_TIMEOUT)
             break
         except requests.exceptions.RequestException as e:
             if attempt >= SCHEDULE_RETRIES:
