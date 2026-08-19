@@ -261,9 +261,17 @@ def register_routes(app):
     def healthz():
         """No-login ping target — hitting this every few minutes keeps
         Render's free web service and Neon's free database from going idle,
-        so the next real click doesn't have to pay the wake-up cost."""
+        so the next real click doesn't have to pay the wake-up cost.
+
+        Deliberately just a bare SELECT 1 -- this used to also call
+        auto_advance_scheduled_posts() on every ping, but that's a real
+        UPDATE query, not just a cheap connection-keeper, and it's already
+        called every time orders_json() runs (i.e. every time anyone
+        actually has the Calendar open) -- running it again here just
+        burns extra database compute time on every single keep-alive ping
+        for no real benefit, which matters a lot on a free-tier compute-
+        hour budget."""
         db.session.execute(db.text("SELECT 1"))
-        auto_advance_scheduled_posts()
         return {"ok": True}
 
     @app.route("/")
@@ -376,22 +384,39 @@ def register_routes(app):
         """Create a new task/order — used by the "+ New task" modal on the
         Board. Pub date is optional; leave it blank and set it later.
 
-        Platform is now a checkbox group (field name "platforms", one value
-        per box checked) rather than a single dropdown, so the boss can pick
-        any specific combination -- e.g. just Instagram + TikTok -- not only
-        one platform or literally every platform. The language field still
-        also accepts the special value "__all__" ("All available languages"
-        in its dropdown). Either way, this creates one task per combination
-        (every platform checked x every language selected), all identical
-        otherwise (same title/pub date/etc.), so the boss doesn't have to
-        create one task then duplicate it N times and set each
-        platform/language by hand."""
+        Platform and language are both checkbox groups now (field names
+        "platforms" and "languages", one value per box checked) rather than
+        dropdowns, so the boss can pick any specific combination -- e.g. just
+        Instagram + TikTok, or just English + Spanish + Italian -- not only
+        one value or literally every value. This creates one task per
+        combination (every platform checked x every language checked), all
+        identical otherwise (same title/pub date/etc.), so the boss doesn't
+        have to create one task then duplicate it N times and set each
+        platform/language by hand. Leaving every language box unchecked
+        keeps the old "not specified" behavior (one task, no language set)
+        rather than meaning "all"."""
         producers = User.query.filter_by(role="producer").order_by(User.name).all()
         if request.method == "POST":
             already_published = request.form.get("already_published") == "yes"
             producer_id = request.form.get("producer_id") or None
-            language_input = request.form.get("language") or None
-            languages_to_create = LANGUAGES if language_input == "__all__" else [language_input]
+
+            language_inputs = [l for l in request.form.getlist("languages") if l]
+            if not language_inputs:
+                # Back-compat fallback for the old single-select "language"
+                # field (including its "__all__" special value).
+                legacy_language = request.form.get("language") or None
+                language_inputs = [legacy_language] if legacy_language else []
+            if "__all__" in language_inputs:
+                languages_to_create = list(LANGUAGES)
+            else:
+                seen_lang = set()
+                languages_to_create = [
+                    l for l in language_inputs if l in LANGUAGES and not (l in seen_lang or seen_lang.add(l))
+                ]
+                if not languages_to_create:
+                    # Nothing valid checked -- same as before checkboxes existed:
+                    # language stays optional/unset rather than defaulting to "all".
+                    languages_to_create = [None]
 
             platform_inputs = [p for p in request.form.getlist("platforms") if p]
             if not platform_inputs:
