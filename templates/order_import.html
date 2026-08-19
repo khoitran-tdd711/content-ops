@@ -21,12 +21,21 @@
       Checking several creates one task per platform (crossed with the language above, if that's also set to "All").
     </p>
 
-    <label>Language (optional)</label>
-    <select name="language">
-      <option value="">— not specified —</option>
-      <option value="__all__">All available languages (creates one task per language)</option>
-      {% for l in languages %}<option value="{{ l }}">{{ l }}</option>{% endfor %}
-    </select>
+    <label>Language(s) (optional)</label>
+    <div id="import-languages" style="display:flex;flex-wrap:wrap;gap:14px;margin:0 0 6px">
+      {% for l in languages %}
+      <label style="display:flex;align-items:center;gap:6px;margin:0;font-weight:500;font-size:13px;cursor:pointer">
+        <input type="checkbox" name="languages" value="{{ l }}" style="width:auto;margin:0">
+        {{ l }}
+      </label>
+      {% endfor %}
+    </div>
+    <p class="muted" style="margin:0 0 14px;font-size:12px">
+      Pick any combination (e.g. just English + Spanish + Italian) —
+      <a href="#" onclick="document.querySelectorAll('#import-languages input').forEach(function(c){c.checked=true}); return false;">select all</a> ·
+      <a href="#" onclick="document.querySelectorAll('#import-languages input').forEach(function(c){c.checked=false}); return false;">clear</a>.
+      Leave all unchecked for "not specified." Checking several creates one task per language (crossed with the platform(s) above).
+    </p>
 
     <label>Content type</label>
     <select name="content_type">
