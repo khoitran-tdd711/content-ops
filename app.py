@@ -82,6 +82,27 @@ TIKTOK_SOUND_GENRES = {
     "LATIN", "COUNTRY", "ALTERNATIVE_INDIE", "K_POP",
 }
 
+# Country override for the sound picker's dropdown -- same 10 countries
+# LANGUAGE_TO_TIKTOK_COUNTRY already guesses from the task's language, just
+# exposed as an explicit choice too (e.g. browsing Spain's chart for an
+# English-language task). An empty/missing value keeps the old
+# guess-from-language behavior.
+TIKTOK_SOUND_COUNTRIES = {
+    "US": "United States",
+    "ES": "Spain",
+    "IT": "Italy",
+    "FR": "France",
+    "NL": "Netherlands",
+    "DE": "Germany",
+    "PL": "Poland",
+    "PT": "Portugal",
+    "RO": "Romania",
+    "GR": "Greece",
+}
+
+# Matches OneUp's own accepted values for gettiktoktrendingsound's date_range.
+TIKTOK_SOUND_DATE_RANGES = {"1DAY", "7DAY", "30DAY", "90DAY"}
+
 
 PARIS_TZ = ZoneInfo("Europe/Paris")
 
@@ -1421,12 +1442,19 @@ def register_routes(app):
         """Calendar publish popup's "Browse trending sounds" control, for
         TikTok tasks only — looks up OneUp's currently-trending sound chart
         so the boss can pick one right here, instead of hunting a sound_id
-        down in OneUp or TikTok directly. country_code is guessed from the
-        task's language (see LANGUAGE_TO_TIKTOK_COUNTRY). OneUp has no
-        keyword search for TikTok sounds, so an optional ?genre= override
-        (validated against the curated list the picker's dropdown offers)
-        is the closest thing to narrowing results down before the boss
-        filters further client-side."""
+        down in OneUp or TikTok directly. Mirrors OneUp's own "Trending
+        Music" dialog, which offers Genre, Country, and Date Range as the
+        three narrowing controls before "Get Trending Music."
+
+        Country defaults to a guess from the task's language (see
+        LANGUAGE_TO_TIKTOK_COUNTRY) when ?country= is missing/blank, but can
+        be explicitly overridden (validated against TIKTOK_SOUND_COUNTRIES).
+        ?date_range= and ?genre= are likewise optional overrides, each
+        validated against their own curated list and falling back to a
+        sane default ("7DAY" / "ALL") for anything invalid. OneUp has no
+        keyword search for TikTok sounds, so these three filters plus the
+        filter box below (which only filters what's already loaded, not a
+        live catalog search) are the closest practical equivalent."""
         order = Order.query.get_or_404(order_id)
         api_key = get_oneup_api_key()
         if not api_key:
@@ -1434,15 +1462,30 @@ def register_routes(app):
         social_account_id = _resolve_tiktok_social_account_id(order)
         if not social_account_id:
             return {"ok": False, "error": "No OneUp TikTok account is mapped yet — set it up in Settings first."}, 400
-        country_code = LANGUAGE_TO_TIKTOK_COUNTRY.get(order.language, "US")
+        country_override = request.args.get("country") or ""
+        if country_override and country_override in TIKTOK_SOUND_COUNTRIES:
+            country_code = country_override
+        else:
+            country_code = LANGUAGE_TO_TIKTOK_COUNTRY.get(order.language, "US")
+        date_range = request.args.get("date_range") or "7DAY"
+        if date_range not in TIKTOK_SOUND_DATE_RANGES:
+            date_range = "7DAY"
         genre = request.args.get("genre") or "ALL"
         if genre not in TIKTOK_SOUND_GENRES:
             genre = "ALL"
         try:
-            sounds = oneup.get_tiktok_trending_sound(api_key, social_account_id, country_code=country_code, genre=genre)
+            sounds = oneup.get_tiktok_trending_sound(
+                api_key, social_account_id, country_code=country_code, date_range=date_range, genre=genre
+            )
         except oneup.OneUpError as e:
             return {"ok": False, "error": f"OneUp couldn't fetch trending sounds: {e}"}, 502
-        return {"ok": True, "country_code": country_code, "genre": genre, "sounds": sounds}
+        return {
+            "ok": True,
+            "country_code": country_code,
+            "date_range": date_range,
+            "genre": genre,
+            "sounds": sounds,
+        }
 
     @app.route("/orders/<int:order_id>/set-tiktok-sound", methods=["POST"])
     @boss_required
