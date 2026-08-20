@@ -6,7 +6,7 @@
 {% block content %}
 <style>
   .cal-event-compact {
-    display: flex; align-items: center; gap: 4px; padding: 1px 16px 1px 5px;
+    display: flex; align-items: center; gap: 4px; padding: 1px 22px 1px 5px;
     border-radius: 5px; overflow: hidden; line-height: 1.3; position: relative;
   }
   .cal-event-compact .time {
@@ -23,20 +23,21 @@
   .cal-event-rich .proj {
     font-family: 'Sora', sans-serif; font-weight: 700; font-size: 13px; line-height: 1.3;
     margin-bottom: 2px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-    overflow: hidden; padding-right: 16px;
+    overflow: hidden; padding-right: 30px;
   }
   .cal-event-rich .acct { font-size: 11.5px; font-weight: 600; opacity: .85; }
   /* Small platform logo badge in the corner of every Calendar card, so
      it's obvious at a glance whether something's an Instagram, LinkedIn,
      Facebook, or TikTok post without opening it. */
   .cal-platform-badge {
-    position: absolute; top: 3px; right: 3px; width: 14px; height: 14px;
-    border-radius: 50%; background: rgba(255,255,255,.92); display: flex;
+    position: absolute; top: 4px; right: 4px; width: 24px; height: 24px;
+    border-radius: 50%; background: rgba(255,255,255,.95); display: flex;
     align-items: center; justify-content: center; flex-shrink: 0;
+    box-shadow: 0 1px 3px rgba(0,0,0,.25);
   }
-  .cal-event-compact .cal-platform-badge { top: 1px; right: 1px; width: 12px; height: 12px; }
-  .cal-platform-badge svg { width: 9px; height: 9px; }
-  .cal-event-compact .cal-platform-badge svg { width: 7px; height: 7px; }
+  .cal-event-compact .cal-platform-badge { top: 2px; right: 2px; width: 19px; height: 19px; }
+  .cal-platform-badge svg { width: 15px; height: 15px; }
+  .cal-event-compact .cal-platform-badge svg { width: 12px; height: 12px; }
   .fc-daygrid-event { border: none !important; background: transparent !important; }
   .fc-timegrid-event, .fc-daygrid-event { padding: 0 !important; }
   .preview-strip { display: flex; gap: 8px; overflow-x: auto; padding: 2px 0 8px; }
@@ -202,15 +203,16 @@
            swept into this form's own POST body. Works for both TikTok
            photo-mode posts and real TikTok videos -- sound applies either
            way. OneUp has no keyword search for TikTok sounds (only
-           trending charts by country/genre/date range), so the genre
-           picker + the filter box below (which only filters what's
-           already loaded, not a live catalog search) are the closest
-           practical equivalent. -->
+           trending charts), so these three dropdowns -- Genre, Country,
+           Date Range, matching OneUp's own "Trending Music" dialog -- plus
+           the filter box below (which only filters what's already loaded,
+           not a live catalog search) are the closest practical
+           equivalent. -->
       <div id="event-modal-tiktok-sound" style="display:none;margin-top:10px">
         <label>TikTok sound (optional)</label>
         <p id="tiktok-sound-current" class="muted" style="margin:0 0 6px;font-size:12px">No sound selected.</p>
         <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">
-          <select id="tiktok-sound-genre" style="width:170px;margin:0;font-size:12px">
+          <select id="tiktok-sound-genre" style="width:160px;margin:0;font-size:12px">
             <option value="ALL">All genres</option>
             <option value="POP">Pop</option>
             <option value="HIP_HOP_RAP">Hip Hop/Rap</option>
@@ -221,6 +223,25 @@
             <option value="COUNTRY">Country</option>
             <option value="ALTERNATIVE_INDIE">Alternative/Indie</option>
             <option value="K_POP">K-Pop</option>
+          </select>
+          <select id="tiktok-sound-country" style="width:190px;margin:0;font-size:12px">
+            <option value="">Country: Auto (from task language)</option>
+            <option value="US">United States</option>
+            <option value="ES">Spain</option>
+            <option value="IT">Italy</option>
+            <option value="FR">France</option>
+            <option value="NL">Netherlands</option>
+            <option value="DE">Germany</option>
+            <option value="PL">Poland</option>
+            <option value="PT">Portugal</option>
+            <option value="RO">Romania</option>
+            <option value="GR">Greece</option>
+          </select>
+          <select id="tiktok-sound-daterange" style="width:140px;margin:0;font-size:12px">
+            <option value="1DAY">Last 24 hours</option>
+            <option value="7DAY" selected>Last 7 days</option>
+            <option value="30DAY">Last 30 days</option>
+            <option value="90DAY">Last 90 days</option>
           </select>
           <button type="button" class="btn secondary" id="btn-browse-tiktok-sounds" style="padding:4px 10px;font-size:12px">Browse trending sounds</button>
           <button type="button" class="btn secondary" id="btn-remove-tiktok-sound" style="padding:4px 10px;font-size:12px;display:none">Remove sound</button>
@@ -286,6 +307,8 @@ document.addEventListener('DOMContentLoaded', function () {
   const tiktokSoundSection = document.getElementById('event-modal-tiktok-sound');
   const tiktokSoundCurrent = document.getElementById('tiktok-sound-current');
   const tiktokGenreSelect = document.getElementById('tiktok-sound-genre');
+  const tiktokCountrySelect = document.getElementById('tiktok-sound-country');
+  const tiktokDateRangeSelect = document.getElementById('tiktok-sound-daterange');
   const tiktokBrowseBtn = document.getElementById('btn-browse-tiktok-sounds');
   const tiktokRemoveBtn = document.getElementById('btn-remove-tiktok-sound');
   const tiktokFilterInput = document.getElementById('tiktok-sound-filter');
@@ -603,12 +626,16 @@ document.addEventListener('DOMContentLoaded', function () {
   tiktokBrowseBtn.addEventListener('click', function () {
     const orderId = tiktokBrowseBtn.dataset.orderId;
     const genre = tiktokGenreSelect.value || 'ALL';
+    const country = tiktokCountrySelect.value || ''; // blank = auto (from task language)
+    const dateRange = tiktokDateRangeSelect.value || '7DAY';
     const originalText = tiktokBrowseBtn.textContent;
     tiktokBrowseBtn.disabled = true;
     tiktokBrowseBtn.textContent = 'Loading…';
     tiktokStatusEl.style.color = '';
     tiktokStatusEl.textContent = '';
-    fetch('/orders/' + orderId + '/tiktok-trending-sounds?genre=' + encodeURIComponent(genre))
+    const params = new URLSearchParams({ genre: genre, date_range: dateRange });
+    if (country) params.set('country', country);
+    fetch('/orders/' + orderId + '/tiktok-trending-sounds?' + params.toString())
       .then(function (r) { return r.json(); })
       .then(function (data) {
         tiktokBrowseBtn.disabled = false;
@@ -969,6 +996,8 @@ document.addEventListener('DOMContentLoaded', function () {
         tiktokSoundSection.style.display = 'block';
         tiktokBrowseBtn.dataset.orderId = info.event.id;
         tiktokGenreSelect.value = 'ALL';
+        tiktokCountrySelect.value = '';
+        tiktokDateRangeSelect.value = '7DAY';
         lastTiktokSounds = [];
         tiktokFilterInput.value = '';
         tiktokFilterInput.style.display = 'none';
