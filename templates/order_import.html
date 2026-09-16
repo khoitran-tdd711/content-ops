@@ -5,6 +5,7 @@
   <h2 style="margin-top:0">Add an existing carousel</h2>
   <p class="muted">For content already produced (and maybe already posted) outside this tool — it'll show up on the calendar for record-keeping.</p>
   <form method="post">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <label>Platform(s)</label>
     <div id="import-platforms" style="display:flex;flex-wrap:wrap;gap:14px;margin:0 0 6px">
       {% for p in platforms %}

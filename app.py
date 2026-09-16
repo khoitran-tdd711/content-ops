@@ -22,6 +22,7 @@ from flask import (
     session,
     url_for,
 )
+from flask_wtf.csrf import CSRFError, CSRFProtect
 from werkzeug.exceptions import HTTPException
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.utils import secure_filename
@@ -106,6 +107,36 @@ TIKTOK_SOUND_DATE_RANGES = {"1DAY", "7DAY", "30DAY", "90DAY"}
 
 PARIS_TZ = ZoneInfo("Europe/Paris")
 
+csrf = CSRFProtect()
+
+# Applies to every place a password is set: /setup, the Team page's "Add a
+# person", the boss's "Reset password", and a user changing their own.
+# Raised from the 6 that /setup used to enforce on its own -- the Team page
+# enforced nothing at all before this, so any minimum is an improvement
+# there. Only ever checked when a password is *set*, so nobody's existing
+# password stops working because of this.
+MIN_PASSWORD_LENGTH = 8
+
+
+def validate_password(password, confirm=None):
+    """Returns a plain-English error string, or None when the password is
+    acceptable. Deliberately the single place this rule lives, so the four
+    routes that set a password can't drift apart again."""
+    if not password or len(password) < MIN_PASSWORD_LENGTH:
+        return f"Password must be at least {MIN_PASSWORD_LENGTH} characters."
+    if confirm is not None and password != confirm:
+        return "The two new passwords don't match."
+    return None
+
+
+def start_session(user):
+    """Logs `user` in. The session token is stored alongside the user id so
+    load_user can reject a cookie that was signed before a password change
+    (see User.session_token)."""
+    session.clear()
+    session["user_id"] = user.id
+    session["session_token"] = user.session_token
+
 
 def auto_advance_scheduled_posts():
     """OneUp doesn't call us back to confirm a post actually went out, so
@@ -160,10 +191,26 @@ def create_app():
     # thinks every request is plain http:// and generated links (like the
     # temporary photo URLs OneUp fetches) come out wrong.
     app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
+    # Tokens stay valid for as long as the session does, rather than the
+    # default one hour. The Calendar is a page people leave open all day;
+    # a token that quietly expired underneath them would surface as a
+    # publish mysteriously failing, which is worse than the tiny extra
+    # exposure of a longer-lived token that's still bound to the session.
+    app.config["WTF_CSRF_TIME_LIMIT"] = None
+    csrf.init_app(app)
     db.init_app(app)
 
     with app.app_context():
         db.create_all()
+        _ensure_column("user", "session_token", "VARCHAR(64)")
+        # Everyone who predates the column gets one now. Their current
+        # browser session has no token stored in it, so this does log
+        # everybody out once, on the deploy that introduces this.
+        stale = User.query.filter(User.session_token.is_(None)).all()
+        for u in stale:
+            u.rotate_session_token()
+        if stale:
+            db.session.commit()
         _ensure_column("order", "oneup_post_id", "INTEGER")
         _ensure_column("order", "media_order", "TEXT")
         _ensure_column("order", "first_comment", "TEXT")
@@ -185,12 +232,34 @@ def register_context(app):
     def load_user():
         g.user = None
         uid = session.get("user_id")
-        if uid:
-            g.user = User.query.get(uid)
+        if not uid:
+            return
+        user = User.query.get(uid)
+        # A cookie whose token no longer matches was signed before this
+        # user's password changed -- drop it rather than trusting it.
+        if user and session.get("session_token") == user.session_token:
+            g.user = user
+        else:
+            session.clear()
 
     @app.context_processor
     def inject_globals():
-        return {"current_user": g.get("user"), "STATUS_LABELS": STATUS_LABELS}
+        return {
+            "current_user": g.get("user"),
+            "STATUS_LABELS": STATUS_LABELS,
+            "min_password_length": MIN_PASSWORD_LENGTH,
+        }
+
+    @app.errorhandler(CSRFError)
+    def handle_csrf_error(e):
+        """A missing/stale CSRF token almost always means the page sat open
+        across a logout or a restart -- say that, rather than showing the
+        raw 400 Flask-WTF would otherwise return."""
+        message = "That page had gone stale — reload it and try again."
+        if wants_json():
+            return {"ok": False, "error": message}, 400
+        flash(message, "error")
+        return redirect(request.referrer or url_for("calendar_view"))
 
     @app.errorhandler(Exception)
     def handle_unexpected_error(e):
@@ -246,14 +315,18 @@ def register_routes(app):
             name = request.form.get("name", "").strip()
             email = request.form.get("email", "").strip().lower()
             password = request.form.get("password", "")
-            if not name or not email or len(password) < 6:
-                flash("Please fill in all fields (password: 6+ characters).", "error")
+            if not name or not email:
+                flash("Please fill in all fields.", "error")
+                return render_template("setup.html")
+            pw_error = validate_password(password)
+            if pw_error:
+                flash(pw_error, "error")
                 return render_template("setup.html")
             user = User(name=name, email=email, role="boss")
             user.set_password(password)
             db.session.add(user)
             db.session.commit()
-            session["user_id"] = user.id
+            start_session(user)
             flash("Account created. Add your producers under Team.", "success")
             return redirect(url_for("calendar_view"))
         return render_template("setup.html")
@@ -267,7 +340,7 @@ def register_routes(app):
             password = request.form.get("password", "")
             user = User.query.filter_by(email=email).first()
             if user and user.check_password(password):
-                session["user_id"] = user.id
+                start_session(user)
                 nxt = request.args.get("next") or url_for("calendar_view")
                 return redirect(nxt)
             flash("Invalid email or password.", "error")
@@ -1614,18 +1687,79 @@ def register_routes(app):
     @boss_required
     def users():
         if request.method == "POST":
+            password = request.form.get("password", "")
+            pw_error = validate_password(password)
+            if pw_error:
+                flash(pw_error, "error")
+                return redirect(url_for("users"))
+            email = request.form["email"].strip().lower()
+            if User.query.filter_by(email=email).first():
+                flash(f"There's already an account for {email}.", "error")
+                return redirect(url_for("users"))
             user = User(
                 name=request.form["name"].strip(),
-                email=request.form["email"].strip().lower(),
+                email=email,
                 role=request.form["role"],
             )
-            user.set_password(request.form["password"])
+            user.set_password(password)
             db.session.add(user)
             db.session.commit()
             flash(f"Created {user.role} account for {user.name}.", "success")
             return redirect(url_for("users"))
         all_users = User.query.order_by(User.role, User.name).all()
         return render_template("users.html", users=all_users)
+
+    @app.route("/users/<int:user_id>/reset-password", methods=["POST"])
+    @boss_required
+    def user_reset_password(user_id):
+        """Boss-side password reset -- this app has no email-based "forgot
+        password" flow (and its email path isn't dependable enough to build
+        one on), so this is how somebody locked out gets back in."""
+        user = User.query.get_or_404(user_id)
+        password = request.form.get("new_password", "")
+        pw_error = validate_password(password)
+        if pw_error:
+            flash(pw_error, "error")
+            return redirect(url_for("users"))
+        user.set_password(password)  # also rotates their session token
+        db.session.commit()
+        if user.id == g.user.id:
+            # Don't sign myself out for resetting my own password.
+            session["session_token"] = user.session_token
+            flash("Your password has been reset. Other browsers were signed out.", "success")
+        else:
+            flash(f"Password reset for {user.name}. They've been signed out everywhere.", "success")
+        return redirect(url_for("users"))
+
+    @app.route("/account", methods=["GET", "POST"])
+    @login_required
+    def account():
+        """Anyone (boss or producer) changing their own password. Needs the
+        current one, so a walked-up-to unlocked laptop can't be used to lock
+        the real owner out."""
+        if request.method == "POST":
+            current = request.form.get("current_password", "")
+            new_password = request.form.get("new_password", "")
+            confirm = request.form.get("confirm_password", "")
+            if not g.user.check_password(current):
+                flash("That isn't your current password.", "error")
+                return redirect(url_for("account"))
+            pw_error = validate_password(new_password, confirm)
+            if pw_error:
+                flash(pw_error, "error")
+                return redirect(url_for("account"))
+            if new_password == current:
+                flash("That's already your password — pick a different one.", "error")
+                return redirect(url_for("account"))
+            g.user.set_password(new_password)
+            db.session.commit()
+            # set_password rotated the token, which just invalidated this
+            # browser too -- re-issue it so the person stays signed in here
+            # while every other session is dropped.
+            session["session_token"] = g.user.session_token
+            flash("Password updated. Any other browser you were signed in on has been signed out.", "success")
+            return redirect(url_for("account"))
+        return render_template("account.html")
 
     # -- Settings (OneUp connection) -----------------------------------------
 

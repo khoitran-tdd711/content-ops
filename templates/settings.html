@@ -13,6 +13,7 @@
     Leave the API key blank if you'd rather use the manual "send to OneUp" fallback for now.
   </p>
   <form method="post" action="{{ url_for('settings_save') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <label>OneUp API key</label>
     <input type="text" name="api_key" value="{{ api_key or '' }}" placeholder="paste your OneUp API key">
 

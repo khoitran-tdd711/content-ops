@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}My account{% endblock %}
+{% block content %}
+<h2>My account</h2>
+
+<div class="card">
+  <div class="section-title">Signed in as</div>
+  <table>
+    <tr><th>Name</th><td>{{ current_user.name }}</td></tr>
+    <tr><th>Email</th><td>{{ current_user.email }}</td></tr>
+    <tr><th>Role</th><td>{{ current_user.role }}</td></tr>
+  </table>
+</div>
+
+<div class="card">
+  <div class="section-title">Change my password</div>
+  <form method="post" autocomplete="off">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div>
+      <label>Current password</label>
+      <input type="password" name="current_password" autocomplete="current-password" required>
+    </div>
+    <div class="grid-2" style="margin-top:14px">
+      <div>
+        <label>New password</label>
+        <input type="password" name="new_password" autocomplete="new-password"
+               minlength="{{ min_password_length }}" required>
+      </div>
+      <div>
+        <label>Confirm new password</label>
+        <input type="password" name="confirm_password" autocomplete="new-password"
+               minlength="{{ min_password_length }}" required>
+      </div>
+    </div>
+    <p class="muted" style="margin-top:10px">
+      At least {{ min_password_length }} characters. Changing this signs you out of
+      every other browser you're signed in on — you'll stay signed in here.
+    </p>
+    <div style="margin-top:18px">
+      <button class="btn" type="submit">Update password</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

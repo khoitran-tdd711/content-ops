@@ -157,7 +157,8 @@
     <button type="button" class="btn danger" style="padding:4px 12px" onclick="submitBulk('delete')">Delete selected</button>
     <button type="button" class="btn secondary" style="padding:4px 12px" id="btn-autofill-selected">Auto-fill Drive links (selected)</button>
   </div>
-  <form id="bulk-form" method="post" style="display:none"></form>
+  <form id="bulk-form" method="post" style="display:none">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"></form>
   {% endif %}
 
   <div class="card" style="overflow-x:auto">
@@ -188,6 +189,7 @@
           {% if current_user.is_boss %}
           <form method="post" action="{{ url_for('order_set_platform', order_id=o.id) }}" style="margin:0;display:inline-block"
                 onsubmit="return false" data-order-id="{{ o.id }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <select name="platform" onchange="ajaxSubmitRow(this.form)" style="width:110px;padding:3px 6px;font-size:12px;margin:0">
               {% for p in platforms %}<option value="{{ p }}" {{ 'selected' if o.platform == p }}>{{ p|title }}</option>{% endfor %}
             </select>
@@ -200,6 +202,7 @@
           {% if current_user.is_boss %}
           <form method="post" action="{{ url_for('order_set_language', order_id=o.id) }}" style="margin:0;display:inline-block"
                 onsubmit="return false" data-order-id="{{ o.id }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <select name="language" onchange="ajaxSubmitRow(this.form)" style="width:110px;padding:3px 6px;font-size:12px;margin:0">
               <option value="" {{ 'selected' if not o.language }}>—</option>
               {% for l in languages %}<option value="{{ l }}" {{ 'selected' if o.language == l }}>{{ l }}</option>{% endfor %}
@@ -213,6 +216,7 @@
           {% if current_user.is_boss %}
           <form method="post" action="{{ url_for('order_set_producer', order_id=o.id) }}" style="margin:0;display:inline-block"
                 onsubmit="return false" data-order-id="{{ o.id }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <select name="producer_id" onchange="ajaxSubmitRow(this.form)" style="width:120px;padding:3px 6px;font-size:12px;margin:0">
               <option value="">—</option>
               {% for p in producers %}<option value="{{ p.id }}" {{ 'selected' if o.producer_id == p.id }}>{{ p.name }}</option>{% endfor %}
@@ -226,6 +230,7 @@
           {% if current_user.is_boss %}
           <form method="post" action="{{ url_for('order_set_status', order_id=o.id) }}" style="margin:0;display:inline-block"
                 onsubmit="return false" data-order-id="{{ o.id }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <select name="status" id="status-select-{{ o.id }}" onchange="ajaxSubmitRow(this.form)"
                     style="width:150px;padding:4px 8px;font-size:13px;font-weight:600;color:{{ o.status_text_color }};background:{{ o.status_color }};border:none;margin:0">
               {% if o.status not in board_statuses %}
@@ -255,6 +260,7 @@
           <form method="post" action="{{ url_for('order_set_drive_link', order_id=o.id) }}"
                 onsubmit="return ajaxSubmitRow(this)" data-order-id="{{ o.id }}"
                 style="display:flex;gap:4px;align-items:center;margin:0">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="text" name="drive_links" value="{{ o.drive_links or '' }}" placeholder="Drive link"
                    style="width:150px;padding:4px 6px;margin:0">
             <button class="btn" type="submit" style="padding:4px 10px">Save</button>
@@ -271,6 +277,7 @@
           <form method="post" action="{{ url_for('order_set_date', order_id=o.id) }}"
                 onsubmit="return ajaxSubmitRow(this)" data-order-id="{{ o.id }}"
                 style="display:flex;gap:4px;align-items:center;margin:0">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="datetime-local" name="scheduled_at"
                    value="{{ o.scheduled_at.strftime('%Y-%m-%dT%H:%M') if o.scheduled_at else '' }}"
                    style="width:180px;padding:4px 6px;margin:0">
@@ -287,10 +294,12 @@
             <summary>⋮</summary>
             <div class="menu-pop">
               <form method="post" action="{{ url_for('order_duplicate', order_id=o.id) }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button class="btn secondary" type="submit">Duplicate</button>
               </form>
               <form method="post" action="{{ url_for('order_delete', order_id=o.id) }}"
                     onsubmit="return confirm('Delete this task? This can\'t be undone.');">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button class="btn danger" type="submit">Delete</button>
               </form>
             </div>
@@ -313,6 +322,7 @@
     </div>
     <form method="post" action="{{ url_for('order_import') }}" style="margin-top:10px"
           onsubmit="var b=this.querySelector('button[type=submit]'); b.disabled=true; b.textContent='Creating…';">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <label>Platform(s)</label>
       <div id="new-task-platforms" style="display:flex;flex-wrap:wrap;gap:14px;margin:0 0 6px">
         {% for p in platforms %}
@@ -391,6 +401,7 @@
   <div class="card" style="margin:0;border:none">
     <h3 style="margin:0 0 10px">Note</h3>
     <form id="note-form" method="post">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <textarea id="note-textarea" name="feedback_note" rows="5" placeholder="Write a note…"></textarea>
       <div style="display:flex;gap:10px;margin-top:14px">
         <button type="button" class="btn secondary" style="flex:1"
@@ -602,7 +613,10 @@ document.getElementById('note-form').addEventListener('submit', function (e) {
     const ids = selectedIds();
     if (!ids.length) return;
     const form = document.getElementById('bulk-form');
-    form.innerHTML = '';
+    // This form is rebuilt from scratch on every bulk action, so the CSRF
+    // token rendered inside it has to be put back after the wipe -- without
+    // this, every bulk delete/status/date is rejected as a stale page.
+    form.innerHTML = '<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">';
     ids.forEach(function (id) {
       const inp = document.createElement('input');
       inp.type = 'hidden';

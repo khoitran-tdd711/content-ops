@@ -14,6 +14,36 @@
       if (saved === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
     })();
   </script>
+  <meta name="csrf-token" content="{{ csrf_token() }}">
+  <script>
+    // Every state-changing fetch() in this app (Board inline edits, the
+    // Calendar's drag-to-reschedule and publish popup, the Drive helpers)
+    // needs to carry the CSRF token. Rather than touch ~13 call sites and
+    // hope none are missed -- now or the next time one gets added -- the
+    // token is attached here, once, by wrapping fetch itself. Same-origin
+    // and non-GET only, so nothing leaks to third parties, and an explicit
+    // header on a call site still wins.
+    (function () {
+      var meta = document.querySelector('meta[name="csrf-token"]');
+      if (!meta || !window.fetch) return;
+      var token = meta.getAttribute('content');
+      var SAFE = ['GET', 'HEAD', 'OPTIONS', 'TRACE'];
+      var nativeFetch = window.fetch.bind(window);
+      window.fetch = function (input, init) {
+        init = init || {};
+        var url = typeof input === 'string' ? input : (input && input.url) || '';
+        var method = (init.method || (input && input.method) || 'GET').toUpperCase();
+        var isAbsolute = /^[a-z][a-z0-9+.-]*:\/\//i.test(url);
+        var sameOrigin = !isAbsolute || url.indexOf(window.location.origin + '/') === 0;
+        if (sameOrigin && SAFE.indexOf(method) === -1) {
+          var headers = new Headers(init.headers || {});
+          if (!headers.has('X-CSRFToken')) headers.set('X-CSRFToken', token);
+          init.headers = headers;
+        }
+        return nativeFetch(input, init);
+      };
+    })();
+  </script>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   {% block head %}{% endblock %}
 </head>
@@ -41,7 +71,7 @@
       <a href="{{ url_for('settings') }}">Settings</a>
     {% endif %}
     <div class="spacer"></div>
-    <span class="user">{{ current_user.name }} ({{ current_user.role }})</span>
+    <a class="user" href="{{ url_for('account') }}" title="My account">{{ current_user.name }} ({{ current_user.role }})</a>
     <a href="{{ url_for('logout') }}">Log out</a>
     {{ theme_toggle_btn('theme-toggle-nav') }}
   </div>
