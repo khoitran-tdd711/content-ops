@@ -37,6 +37,7 @@
 <div class="card">
   <div class="section-title">Submit your work</div>
   <form method="post" action="{{ url_for('order_submit', order_id=order.id) }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <label>Drive link(s) — one per line (one per image/slide for a carousel)</label>
     <textarea name="drive_links" required placeholder="https://drive.google.com/file/d/.../view">{{ order.drive_links or '' }}</textarea>
     <label>Caption (optional — leave as-is to keep the current brief)</label>
@@ -55,9 +56,11 @@
 <div class="card">
   <div class="section-title">Review</div>
   <form method="post" action="{{ url_for('order_approve', order_id=order.id) }}" style="display:inline">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <button class="btn success" type="submit">Approve</button>
   </form>
   <form method="post" action="{{ url_for('order_request_changes', order_id=order.id) }}" style="margin-top:14px">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <label>Or request changes</label>
     <textarea name="feedback_note" placeholder="What needs to change?" required></textarea>
     <div style="margin-top:10px">
@@ -77,6 +80,7 @@
     <p class="muted">OneUp isn't connected yet (see Settings). This will mark the order as "sent to OneUp" so you can upload it there yourself.</p>
   {% endif %}
   <form method="post" action="{{ url_for('order_schedule', order_id=order.id) }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     {% if not order.platform %}
     <label>Platform (not set yet — required to schedule)</label>
     <select name="platform" required>
@@ -102,6 +106,7 @@
   <a class="btn secondary" href="https://www.oneupapp.io/" target="_blank">Open OneUp</a>
   {% if current_user.is_boss %}
   <form method="post" action="{{ url_for('order_mark_published', order_id=order.id) }}" style="display:inline">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <button class="btn" type="submit" style="margin-left:8px">Mark as done</button>
   </form>
   {% endif %}
@@ -128,6 +133,7 @@
   <p class="muted">{{ order.oneup_response }}</p>
   {% if current_user.is_boss %}
   <form method="post" action="{{ url_for('order_schedule', order_id=order.id) }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <label>Try again — publish date &amp; time</label>
     <input type="datetime-local" name="scheduled_at" required>
     <div style="margin-top:14px">

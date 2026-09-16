@@ -6,6 +6,7 @@
 <div class="card">
   <div class="section-title">Add a person</div>
   <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="grid-2">
       <div>
         <label>Name</label>
@@ -25,10 +26,17 @@
         </select>
       </div>
       <div>
+        {# Deliberately type="text": this is a throwaway password the boss has
+           to read off the screen and pass on to the person, who then changes
+           it themselves under "My account". #}
         <label>Temporary password</label>
-        <input type="text" name="password" required>
+        <input type="text" name="password" minlength="{{ min_password_length }}" required>
       </div>
     </div>
+    <p class="muted" style="margin-top:10px">
+      At least {{ min_password_length }} characters. Send it to them however you
+      normally would, and ask them to change it under <strong>My account</strong>.
+    </p>
     <div style="margin-top:18px">
       <button class="btn" type="submit">Add person</button>
     </div>
@@ -37,10 +45,29 @@
 
 <div class="card">
   <div class="section-title">Everyone</div>
+  <p class="muted">
+    There's no "forgot password" email in this app — if someone is locked out,
+    set them a new password here and tell them what it is. It signs them out
+    everywhere immediately.
+  </p>
   <table>
-    <tr><th>Name</th><th>Email</th><th>Role</th></tr>
+    <tr><th>Name</th><th>Email</th><th>Role</th><th>Set a new password</th></tr>
     {% for u in users %}
-    <tr><td>{{ u.name }}</td><td>{{ u.email }}</td><td>{{ u.role }}</td></tr>
+    <tr>
+      <td>{{ u.name }}</td>
+      <td>{{ u.email }}</td>
+      <td>{{ u.role }}</td>
+      <td>
+        <form method="post" action="{{ url_for('user_reset_password', user_id=u.id) }}"
+              style="margin:0;display:flex;gap:8px;align-items:center"
+              onsubmit='return confirm("Set a new password for " + {{ u.name|tojson }} + "? They will be signed out everywhere.")'>
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="text" name="new_password" placeholder="new password"
+                 minlength="{{ min_password_length }}" required style="max-width:220px">
+          <button class="btn secondary" type="submit">Reset</button>
+        </form>
+      </td>
+    </tr>
     {% endfor %}
   </table>
 </div>

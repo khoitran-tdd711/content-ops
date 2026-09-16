@@ -6,6 +6,7 @@
     <h2 style="margin-top:0">Welcome — set up your account</h2>
     <p class="muted">This runs once. You'll be the first "boss" account; you can add producers afterwards under Team.</p>
     <form method="post">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <label>Your name</label>
       <input type="text" name="name" required autofocus>
       <label>Your email</label>

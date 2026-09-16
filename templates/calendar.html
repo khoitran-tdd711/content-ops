@@ -183,6 +183,7 @@
     <p id="event-modal-status-note" class="muted" style="margin:-8px 0 12px;font-size:12px"></p>
     <div id="event-modal-preview"></div>
     <form id="event-modal-publish-form" method="post">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <label>Publish date &amp; time</label>
       <input type="datetime-local" id="event-modal-datetime" name="scheduled_at" required>
 

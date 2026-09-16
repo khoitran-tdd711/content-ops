@@ -1,4 +1,5 @@
 import json
+import secrets
 from datetime import datetime, timezone
 
 from flask_sqlalchemy import SQLAlchemy
@@ -106,10 +107,24 @@ class User(db.Model):
     email = db.Column(db.String(200), unique=True, nullable=False)
     role = db.Column(db.String(20), nullable=False, default="producer")  # 'boss' or 'producer'
     password_hash = db.Column(db.String(300), nullable=False)
+    # Rotated every single time the password is set (see set_password). The
+    # value is copied into the browser session at login and re-checked on
+    # every request, which is the only way to actually invalidate a session
+    # in this app: Flask's cookie sessions are stateless and signed, so
+    # clearing the cookie server-side does nothing to a copy an attacker
+    # already holds. Changing your password therefore logs out every other
+    # browser you were signed in on -- which is the whole point when the
+    # reason you're changing it is that the old one leaked.
+    session_token = db.Column(db.String(64))
     created_at = db.Column(db.DateTime, default=now)
 
     def set_password(self, pw):
         self.password_hash = generate_password_hash(pw)
+        self.rotate_session_token()
+
+    def rotate_session_token(self):
+        """Invalidates every existing signed-cookie session for this user."""
+        self.session_token = secrets.token_hex(32)
 
     def check_password(self, pw):
         return check_password_hash(self.password_hash, pw)
